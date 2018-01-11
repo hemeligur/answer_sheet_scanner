@@ -2,7 +2,7 @@
 import cv2
 import numpy as np
 
-DEBUG = True
+DEBUG = False
 
 
 def img_show(img, window_name, width=None, height=None):

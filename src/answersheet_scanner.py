@@ -82,6 +82,7 @@ def decode_qrcode(gray_img, original_img=None):
         return None
 
     print("Found %d qrcodes." % len(results))
+    print(results)
     if original_img is not None:
         for code in results:
             print(code)
