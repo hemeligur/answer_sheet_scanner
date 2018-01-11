@@ -19,7 +19,7 @@ A Python 3.5 script to scan an answer sheet outputting the alternatives marked.
    - Every alternative must be at the same distance from each other. The default is set to 63 for the Zbar (or 62 in the Gimp project)
 
 # Usage
-  Try "python answersheet-scanner.py -h"
+  Try "python answersheet_scanner.py -h"
   
 # Debugging
   The helper module cv2_utils.py has a variable called DEBUG, normally set to False. Set it to True to enable showing the various phases of the process through "cv2.imshow".
