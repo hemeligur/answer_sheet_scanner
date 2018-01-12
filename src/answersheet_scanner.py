@@ -112,40 +112,37 @@ def parse_qrcode_data(data):
     @returns A dictionary with the fields read.
     All fields are integers, except "format" which is a list of integers.'''
 
-    # SEDUCE;school;test;student;n_questions;n_alternatives;rows:columns
-    # SEDUCE;52020959;000002440;11001529449;5;5;5:1
+    # school.test.student.n_questions.n_alternatives.rows-columnsX
+    # 52020959.000002440.11001529449.5.5.5-1E
 
     data = data.decode('UTF-8')
-    fields = data.split(";")
+    fields = data.split(".")
 
-    if fields[0] == "SEDUCE":
-        if len(fields) == 7:
-            formato = [int(i) for i in fields[6].split(":")]
-            if len(formato) == 2:
-                try:
-                    data = {
-                        "school": int(fields[1]),
-                        "test": int(fields[2]),
-                        "student": int(fields[3]),
-                        "n_questions": int(fields[4]),
-                        "n_alternatives": int(fields[5])
-                    }
+    if len(fields) == 6:
+        formato = [int(i) for i in fields[5][:-1].split("-")]
+        if len(formato) == 2:
+            try:
+                data = {
+                    "school": int(fields[0]),
+                    "test": int(fields[1]),
+                    "student": int(fields[2]),
+                    "n_questions": int(fields[3]),
+                    "n_alternatives": int(fields[4])
+                }
 
-                    data["format"] = formato
-                    return data
+                data["format"] = formato
+                return data
 
-                except ValueError:
-                    print("Wrong QRcode data: " +
-                          "invalid type in one of the fields!")
-
-            else:
+            except ValueError:
                 print("Wrong QRcode data: " +
-                      "Invalid format!")
+                      "invalid type in one of the fields!")
+
         else:
             print("Wrong QRcode data: " +
-                  "Wrong number of fields! Expected 7, got %d" % len(fields))
+                  "Invalid format!")
     else:
-        print("Wrong QRcode data: Incorrect header!")
+        print("Wrong QRcode data: " +
+              "Wrong number of fields! Expected 6, got %d" % len(fields))
 
     return None
 
