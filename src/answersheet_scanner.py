@@ -7,7 +7,7 @@ import argparse
 from math import floor
 from imutils import contours
 import imutils
-from imutils.perspective import four_point_transform
+from imutils.perspective import four_point_transform, order_points
 import cv2
 import cv2_utils
 import zbar
@@ -42,6 +42,8 @@ def read_args():
     ap.add_argument("-f", "--fail_dir", required=False, default="falhas",
                     help="Path to the folder to which will be moved the image\
                      files processed with fail.")
+    ap.add_argument("--debug", required=False, action='store_true',
+                    help="Flag to enable the debug showing of the images")
     gr = ap.add_mutually_exclusive_group(required=True)
     gr.add_argument("-i", "--image", help="Path to the input image")
     gr.add_argument("-d", "--imgdir", help="Path to the directory with the images to be processed.\
@@ -49,6 +51,8 @@ def read_args():
                     file extension.The extensions lookep up for are: [.png; \
                     .jpg; .jpeg; .gif; .bmp.].")
     args = vars(ap.parse_args())
+
+    cv2_utils.DEBUG = args["debug"]
 
     ap = "'" if args["outfile"] is not None else ""
     print("Output File: %s%s%s" % (ap, args["outfile"], ap))
@@ -77,12 +81,12 @@ def decode_qrcode(gray_img, original_img=None):
     scanner = zbar.Scanner()
     results = scanner.scan(gray_img)
 
+    print(results)
     if len(results) == 0:
-        print("No QRcode found. Terminating")
+        print("No code found. Terminating")
         return None
 
-    print("Found %d qrcodes." % len(results))
-    print(results)
+    print("Found %d codes." % len(results))
     if original_img is not None:
         for code in results:
             print(code)
@@ -158,12 +162,17 @@ def preprocess(image):
     gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
 
     edged = cv2_utils.auto_canny(gray)
+    edged_dilate = cv2.dilate(edged, np.ones((3, 3), np.uint8), iterations=1)
+    edged_erode = cv2.erode(edged_dilate, np.ones(
+        (3, 3), np.uint8), iterations=1)
 
     cv2_utils.img_show(blurred, "Blurred", height=950)
     cv2_utils.img_show(gray, "Gray", height=950)
     cv2_utils.img_show(edged, "Edged", height=950)
+    cv2_utils.img_show(edged_dilate, "Edged Dilated", height=950)
+    cv2_utils.img_show(edged_erode, "Edged Eroded", height=950)
 
-    return (gray, edged)
+    return (gray, edged_erode)
 
 
 def find_markers(edged, image=None):
@@ -186,36 +195,53 @@ def find_markers(edged, image=None):
 
         # Loop over the sorted contours
         for c in cnts:
-            # Approximate the contour to a simpler shape
-            peri = cv2.arcLength(c, True)
-            approx = cv2.approxPolyDP(c, 0.04 * peri, True)
+            area = cv2.contourArea(c)
+            if area > 100:
+                # Approximate the contour to a simpler shape
+                peri = cv2.arcLength(c, True)
+                approx = cv2.approxPolyDP(c, 0.06 * peri, True)
 
-            # If the approximated contour has three points,
-            # then it's assumed to have found a marker.
-            if len(approx) == 3:
-                markers_area.append(cv2.contourArea(approx))
-                markers.append(approx)
+                # If the approximated contour has three points,
+                # then it's assumed to have found a marker.
+                # convex = cv2.isContourConvex(c)
+                # print(len(approx), area, convex)
+                # img2 = image.copy()
+                # cv2.drawContours(img2, [approx], -1, (0, 0, 255), 2)
+                # cv2_utils.img_show(img2, "Contorno", height=950)
+                # img3 = image.copy()
+                # for pt in approx:
+                #     cv2.circle(img3, tuple(pt[0]), 3, (0, 255, 0), 2)
+                #     cv2_utils.img_show(img3, "contour points", height=950)
 
-                # If for some reason it has found more than 4 triangles
-                # We keep only the ones with the lower contour area std
-                while len(markers) > 4:
-                    mean = np.mean(markers_area)
-                    diff_mean = sorted(
-                        [(abs(mean - v), i)
-                            for i, v in enumerate(markers_area)], reverse=True)
-                    del markers_area[diff_mean[0][1]]
-                    del markers[diff_mean[0][1]]
+                if len(approx) == 3:
+                    markers_area.append(cv2.contourArea(approx))
+                    markers.append(approx)
+
+                    # If for some reason it has found more than 4 triangles
+                    # We keep only the ones with the lower contour area std
+                    while len(markers) > 4:
+                        mean = np.mean(markers_area)
+                        diff_mean = sorted(
+                            [(abs(mean - v), i)
+                                for i, v in enumerate(markers_area)],
+                            reverse=True)
+                        del markers_area[diff_mean[0][1]]
+                        del markers[diff_mean[0][1]]
+        if len(markers) < 4:
+            print("Couldn't find all the four markers." +
+                  " Cannot continue. Aborting!")
+            return None
     else:
         print(
-            "Erro! Nenhum contorno encontrado! Impossível continuar. Abortar")
+            "Error! No contour found! Impossible to continue. Aborting!")
         return None
 
     if len(markers) > 0:
         img = image.copy()
-        cv2.drawContours(img, markers, -1, (255, 0, 255), 3)
+        cv2.drawContours(img, markers, -1, (255, 0, 255), 2)
         cv2_utils.img_show(img, "Markers", height=950)
     else:
-        print("Erro! Nenhum marcador encontrado! Desistindo.")
+        print("Error! No marker found! Giving up.")
         return None
 
     return markers
@@ -224,11 +250,190 @@ def find_markers(edged, image=None):
 def warpcrop(image, gray, points):
     ''' Apply a four point perspective transform to the grayscale image
      to obtain a top-down view of the paper. '''
-    ansROI = four_point_transform(image, points.reshape(4, 2))
-    warped = four_point_transform(gray, points.reshape(4, 2))
+    ansROI = four_point_transform(image, points.reshape(4, 2))[0]
+    warped, m_transform = four_point_transform(gray, points.reshape(4, 2))
     cv2_utils.img_show(warped, "Warped", height=800)
 
-    return (ansROI, warped)
+    return (ansROI, warped, m_transform)
+
+
+def read_student_id(thresh, markers, m_transform, img=None):
+    # Offsets taken from the Gimp project
+    top_offset = 2.12
+    bottom_offset = 0.42
+
+    # define the dictionary of digit segments so we can identify
+    # each digit on the thermostat
+    DIGITS_LOOKUP = {
+        (1, 1, 1, 0, 1, 1, 1): 0,
+        (0, 0, 1, 0, 0, 1, 0): 1,
+        (1, 0, 1, 1, 1, 0, 1): 2,
+        (1, 0, 1, 1, 0, 1, 1): 3,
+        (0, 1, 1, 1, 0, 1, 0): 4,
+        (1, 1, 0, 1, 0, 1, 1): 5,
+        (1, 1, 0, 1, 1, 1, 1): 6,
+        (1, 1, 1, 0, 0, 1, 0): 7,
+        (1, 1, 1, 1, 1, 1, 1): 8,
+        (1, 1, 1, 1, 0, 1, 1): 9
+    }
+
+    bottom_markers = contours.sort_contours(
+        markers, method="bottom-to-top")[0][:2]
+    m_bbox = contours.sort_contours(
+        bottom_markers, method="right-to-left")[1]
+
+    heigths = [i[-1] for i in m_bbox]
+    markers_height = int(np.mean(heigths))
+    top = m_bbox[0][1] - (markers_height * top_offset)
+    bottom = m_bbox[0][1] - (markers_height * bottom_offset)
+
+    id_region = np.array([
+        [m_bbox[1][0] + m_bbox[1][2], top],
+        [m_bbox[0][0], top],
+        [m_bbox[0][0], bottom],
+        [m_bbox[1][0] + m_bbox[1][2], bottom],
+    ], dtype='float32')
+    id_region_warped = cv2.perspectiveTransform(
+        id_region.reshape(1, 4, 2), m_transform)
+    id_region_warped = id_region_warped.reshape(4, 2)
+
+    # cv2.drawContours(img, id_region.reshape(4, 1, 2), -1, (0, 0, 255), 3)
+    # for pt in id_region_warped:
+    #     cv2.circle(img, tuple(pt), 3, (0, 0, 255), 2)
+    # cv2_utils.img_show(img, "Id Region", height=950)
+    # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (1, 5))
+    # thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+    thresh = cv2.dilate(thresh, (3, 3), iterations=1)
+    idRoi = thresh[int(id_region_warped[0][1]):int(id_region_warped[3][1]),
+                   int(id_region_warped[0][0]):int(id_region_warped[1][0])]
+    idRoi = imutils.resize(idRoi, width=1500)
+    imgRoi = img[int(id_region_warped[0][1]):int(id_region_warped[3][1]),
+                 int(id_region_warped[0][0]):int(id_region_warped[1][0])]
+    imgRoi = imutils.resize(imgRoi, width=1500)
+
+    cv2_utils.img_show(idRoi, "Id ROI")
+    # find contours in the thresholded image, then initialize the
+    # digit contours lists
+    cnts = cv2.findContours(idRoi, cv2.RETR_EXTERNAL,
+                            cv2.CHAIN_APPROX_SIMPLE)
+    cnts = cnts[0] if imutils.is_cv2() else cnts[1]
+
+    img2 = imgRoi.copy()
+    cv2.drawContours(img2, cnts, -1, (0, 0, 255), 3)
+    cv2_utils.img_show(img2, "Digits Contours")
+
+    digitCnts = []
+    widths = []
+    heights = []
+    # loop over the digit area candidates
+    for c in cnts:
+        # compute the bounding box of the contour
+        (x, y, w, h) = cv2.boundingRect(c)
+        widths.append(w)
+        heights.append(h)
+        # print("w:", w, "h:", h)
+        # img2 = imgRoi.copy()
+        # cv2.drawContours(img2, [c], -1, (0, 255, 0), 1)
+        # cv2_utils.img_print(img2, "w: %s h: %s" % (w, h))
+        # cv2_utils.img_show(img2, "Digit")
+        # if the contour is sufficiently large, it must be a digit
+        digitCnts.append(c)
+
+    if len(digitCnts) == 0:
+        print("No digits found!")
+        return None
+
+    mean_width = np.mean(widths)
+    normalized_widths = [i for i in widths if i >= mean_width]
+    digit_width = int(np.ceil(np.mean(normalized_widths)))
+
+    print("widths:", widths)
+    print("heights:", heights)
+    print("normalized_widths:", normalized_widths)
+    print("digit_width:", digit_width)
+
+    # sort the contours from left-to-right, then initialize the
+    # actual digits themselves
+    digitCnts = contours.sort_contours(digitCnts,
+                                       method="left-to-right")[0]
+
+    img3 = imgRoi.copy()
+    cv2.drawContours(img3, digitCnts, -1, (0, 0, 255), 3)
+    cv2_utils.img_show(img3, "Digits?")
+
+    digits = []
+
+    # loop over each of the digits
+    for c in digitCnts:
+        # extract the digit ROI
+        (x, y, w, h) = cv2.boundingRect(c)
+
+        print("Bellow average?", w < mean_width)
+        if w < mean_width:
+            # Fix the width of the contour to account for the digit one
+            diff_w = digit_width - w
+            x = x - diff_w
+            w = digit_width
+
+        roi = idRoi[y:y + h, x:x + w]
+
+        # compute the width and height of each of the 7 segments
+        # we are going to examine
+        (roiH, roiW) = roi.shape
+        (dW, dH) = (int(roiW * 0.25), int(roiH * 0.15))
+        dHC = int(roiH * 0.05)
+
+        # define the set of 7 segments
+        segments = [
+            ((0, 0), (w, dH)),  # top
+            ((0, 0), (dW, h // 2)),  # top-left
+            ((w - dW, 0), (w, h // 2)),  # top-right
+            ((0, (h // 2) - dHC), (w, (h // 2) + dHC)),  # center
+            ((0, h // 2), (dW, h)),  # bottom-left
+            ((w - dW, h // 2), (w, h)),  # bottom-right
+            ((0, h - dH), (w, h))   # bottom
+        ]
+        on = [0] * len(segments)
+        img4 = imgRoi.copy()
+        cv2.rectangle(img4, (x, y), (x + w, y + h), (0, 255, 0), 1)
+        # loop over the segments
+        for (i, ((xA, yA), (xB, yB))) in enumerate(segments):
+            # extract the segment ROI, count the total number of
+            # thresholded pixels in the segment, and then compute
+            # the area of the segment
+            segROI = roi[yA:yB, xA:xB]
+            total = cv2.countNonZero(segROI)
+            area = (xB - xA) * (yB - yA)
+            cv2.rectangle(img4, (xA + x, yA + y),
+                          (xB + x, yB + y), (255, 0, 0), 1)
+            cv2_utils.img_show(img4, "Digits Analisys")
+
+            # if the total number of non-zero pixels is greater than
+            # 70% of the area, mark the segment as "on"
+            if total / float(area) > 0.7:
+                on[i] = 1
+
+        print(on)
+        # lookup the digit and draw it on the image
+        try:
+            digit = DIGITS_LOOKUP[tuple(on)]
+        except KeyError as e:
+            print(e)
+            digit = -1
+        digits.append(digit)
+        cv2.rectangle(imgRoi, (x, y), (x + w, y + h), (0, 255, 0), 1)
+        cv2.putText(imgRoi, str(digit), (x + w // 2, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
+
+    # display the digits
+    print(digits)
+    cv2_utils.img_show(imgRoi, "Output")
+
+    student_id = 0
+    for i, v in enumerate(digits):
+        student_id = student_id + v * (10 ** (len(digits) - 1 - i))
+
+    return student_id
 
 
 def sort_questionMarks(questionMarks, questions_format):
@@ -280,13 +485,16 @@ def define_alternatives_region(questionMarks, n_alternativas, img=None):
     # question marker to the start/leftmost side of the alternative's region
     # The offset can be calculated using the gimp project of the answer-card
     # and using the ruler tool to measure the distance and add 9.
-    offset = 75
+    offset = 75  # Exactly 3x the marker's width
     # The width of one alternative's region
     # Same as the offset but with a plus 1.
-    alt_width = 63
+    alt_width = 63  # Almost 3x the marker's width
 
     alts_region = []
 
+    marker_width = [questionMarks[i][-1][0][0] - questionMarks[i][0][0][0]
+                    for i in range(len(questionMarks))]
+    marker_width = np.mean(marker_width)
     for c in questionMarks:
         alts = []
         for i in range(len(c)):
@@ -298,7 +506,6 @@ def define_alternatives_region(questionMarks, n_alternativas, img=None):
         alts = np.asarray(alts)
         alts_region.append(alts)
 
-    marker_width = questionMarks[0][-1][0][0] - questionMarks[0][0][0][0]
     total_alt_width = (
         alts_region[0][-1][0][0] -
         alts_region[0][0][0][0] - marker_width
@@ -310,19 +517,35 @@ def define_alternatives_region(questionMarks, n_alternativas, img=None):
         c = cv2_utils.contour_center(r)
         cv2.putText(img, str(i), c, cv2.FONT_HERSHEY_SIMPLEX,
                     0.9, (0, 0, 255), 2)
-    cv2_utils.img_show(img, "Regiões Alternativas", height=950)
+    cv2_utils.img_show(img, "Alternatives regions", height=950)
 
     all_alternatives = define_each_alts_region(
         alts_region, n_alternativas, total_alt_width)
     return all_alternatives
 
 
-def find_questions(thresh_cnts, n_alternativas, n_questoes, questions_format,
-                   thresh, img=None):
+def find_questions(n_alternativas, n_questoes, questions_format, thresh,
+                   img=None):
     ''' Finds the questions using a serious of measures to
      ensure the identification of the question markers '''
-    questionMarks = []
 
+    thresh = imutils.resize(thresh, height=2480)
+    img = imutils.resize(img, height=2480)
+    cv2_utils.img_show(thresh, "thresh fix?", height=950)
+
+    thresh_cnts = cv2.findContours(
+        thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    thresh_cnts = thresh_cnts[0] if imutils.is_cv2() else thresh_cnts[1]
+
+    img1 = img.copy()
+    cv2.drawContours(img1, thresh_cnts, -1, (0, 255, 255), 2)
+    cv2_utils.img_show(img1, "AnsROI Contours", height=800)
+
+    questionMarks = []
+    rects = []
+
+    img2 = img.copy()
+    img3 = img.copy()
     # Loop over the contours
     for c in thresh_cnts:
         # Compute the area of the contour to filter out very small noisy areas.
@@ -332,13 +555,19 @@ def find_questions(thresh_cnts, n_alternativas, n_questoes, questions_format,
         peri = cv2.arcLength(c, True)
         # Approximates to a polygon, using a very small epsilon,
         # to keep most of the original contour.
-        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+        approx = cv2.approxPolyDP(c, 0.03 * peri, True)
+
+        # img3 = img.copy()
+        # cv2.drawContours(img3, [approx], -1, (0, 0, 255), 3)
+        # cv2_utils.img_show(img3, "Question marks loop", height=950)
 
         # Checks the area of the contour for very small areas,
         # as it's likely to be just noise.
-        if area > 100:
+        # print("Area:", area)
+        if area > 10:
             # Looks for the question markers
             if len(approx) == 4:
+                rects.append(approx)
                 # construct a mask that reveals only the current
                 # "mark" for the question
                 mask = np.zeros(thresh.shape, dtype="uint8")
@@ -347,16 +576,42 @@ def find_questions(thresh_cnts, n_alternativas, n_questoes, questions_format,
                 # apply the mask to the thresholded image, then
                 # count the number of non-zero pixels in the
                 # contour area to see if it has the mark pattern
-                mask = cv2.bitwise_and(thresh, thresh, mask=mask)
-                total = cv2.countNonZero(mask)
+                mask_black = cv2.bitwise_and(thresh, thresh, mask=mask)
+                mask_white = cv2.bitwise_not(thresh, mask=mask)
+                total_black = cv2.countNonZero(mask_black)
+                total_white = cv2.countNonZero(mask_white)
 
-                ratio_area_half = abs((area / total) - 1.5)
-                if (ratio_area_half <= 0.1):
+                print("black", total_black, "white", total_white)
+                ratio_black_area = total_black / area
+                ratio_white_area = total_white / area
+                ratio_white_black = total_white / total_black
+                print("black/area", abs(ratio_black_area - 0.8))
+                print("white/area", abs(ratio_white_area - 0.31))
+                print("white/black", abs(ratio_white_black - 0.4))
+                # print(area, total, area / total, ratio_area_half)
+                if (abs(ratio_black_area - 0.8) < 0.1 and
+                    abs(ratio_white_area - 0.31) < 0.1 and
+                        abs(ratio_white_black - 0.4) < 0.1):
                     questionMarks.append(approx)
+                # cv2_utils.img_show(mask, "Mask markers", height=950)
+
+                # for pt in approx:
+                #     cv2.circle(img2, tuple(pt[0]), 4, (0, 0, 255), 2)
+                # cv2_utils.img_show(img2, "Markers so far", height=950)
+
+            # print("Vertices:", len(approx))
+            # cv2.drawContours(img2, [approx], -1, (0, 255, 0), 2)
+
+    cv2.drawContours(img2, questionMarks, -1, (255, 0, 0), 2)
+    cv2_utils.img_show(img2, "Question marks", height=950)
+
+    print(len(rects))
+    cv2.drawContours(img3, rects, -1, (0, 0, 255), 2)
+    cv2_utils.img_show(img3, "rects", height=950)
 
     if len(questionMarks) != n_questoes and len(questionMarks) > 0:
         print("WARNING! Number of markers found is different from what is " +
-              "stated on the QRcode! Markers: %d != Questions: %d"
+              "stated on the metadata! Markers: %d != Questions: %d"
               % (len(questionMarks), n_questoes))
     elif len(questionMarks) == 0:
         print("No question marks found. Impossible to continue.")
@@ -372,7 +627,7 @@ def find_questions(thresh_cnts, n_alternativas, n_questoes, questions_format,
         color[:len(all_alternatives) % len(color)]
     for question, c in zip(all_alternatives, color):
         cv2.drawContours(img, question, -1, c, 3)
-    cv2_utils.img_show(img, "Alternativas indviduais", height=950)
+    cv2_utils.img_show(img, "Individual alternatives", height=950)
 
     return all_alternatives
 
@@ -404,11 +659,12 @@ def check_answers(all_alternatives, n_alternativas, thresh):
     return answers
 
 
-def write_to_file(school_id, test_id, student_id, answers, outfile):
+def write_to_file(student_id, answers, outfile):
     ''' Saves the answers identified to the file.
     If no file has been passed then just prints to the console '''
 
-    header = ["Escola", "Prova", "Aluno", "Questao", "Alternativa"]
+    header = ["Aluno"]
+    header.extend(["Questao_" + str(i) for i in range(1, len(answers) + 1)])
     print_flag = False
     if outfile is not None:
         writeHeader = False
@@ -420,8 +676,8 @@ def write_to_file(school_id, test_id, student_id, answers, outfile):
                 writer = csv.writer(csvfile, delimiter=',')
                 if writeHeader:
                     writer.writerow(header)
-                for q, r in enumerate(answers):
-                    writer.writerow([school_id, test_id, student_id, q, r])
+
+                writer.writerow([student_id] + answers)
         except Exception as e:
             print("\nError wirting to file:", e)
             print("Falling back to printing to console.\n")
@@ -431,8 +687,7 @@ def write_to_file(school_id, test_id, student_id, answers, outfile):
 
     if print_flag:
         print(header)
-        for q, r in enumerate(answers):
-            print([school_id, test_id, student_id, q, r])
+        print([student_id] + answers)
 
 
 def process_image(image_file, outfile):
@@ -448,18 +703,35 @@ def process_image(image_file, outfile):
 
     gray, edged = preprocess(image)
 
-    results = decode_qrcode(gray)
-    if results is None:
-        return False
+    # results = decode_qrcode(gray)
+    # if results is None:
+    #     # return False
+    #     print("That's ok though")
+    #     qrcode_data = None
+    # else:
+    #     for result in results:
+    #         qrcode_data = parse_qrcode_data(result.data)
 
-    for result in results:
-        qrcode_data = parse_qrcode_data(result.data)
+    #         if qrcode_data is not None:
+    #             break
 
-        if qrcode_data is not None:
-            break
-    if qrcode_data is None:
-        print("No valid QRcode found. Aborting.")
-        return False
+    # if qrcode_data is None:
+    #     print("No valid QRcode found." +
+    #           " Will use the default values of 84 questions, each with 5" +
+    #           " alternatives, organized in 28 rows and 3 columns.")
+    #     qrcode_data = {
+    #         "student": 1,
+    #         "n_questions": 84,
+    #         "n_alternatives": 5,
+    #         "format": [28, 3]
+    #     }
+    #     # return False
+
+    metadata = {
+        "n_questions": 81,
+        "n_alternatives": 5,
+        "format": [27, 3]
+    }
 
     markers = find_markers(edged, image)
     if markers is None:
@@ -467,30 +739,27 @@ def process_image(image_file, outfile):
 
     markers_center = np.array([cv2_utils.contour_center(c) for c in markers])
 
-    ansROI, warped = warpcrop(image, gray, markers_center)
+    ansROI, warped, m_transform = warpcrop(image, gray, markers_center)
 
     thresh_val, thresh_img = cv2_utils.auto_thresh(warped)
     cv2_utils.img_show(thresh_img, "auto thresh", height=800)
 
-    thresh_cnts = cv2.findContours(
-        thresh_img.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    thresh_cnts = thresh_cnts[0] if imutils.is_cv2() else thresh_cnts[1]
-
-    img = ansROI.copy()
-    cv2.drawContours(img, thresh_cnts, -1, (0, 255, 255), 2)
-    cv2_utils.img_show(img, "AnsROI Contours", height=800)
+    # Reads the student id
+    student_id = read_student_id(
+        thresh_img, markers, m_transform, ansROI.copy())
 
     all_alternatives = find_questions(
-        thresh_cnts, qrcode_data["n_alternatives"], qrcode_data["n_questions"],
-        qrcode_data["format"], thresh_img.copy(), ansROI.copy())
+        metadata["n_alternatives"], metadata["n_questions"],
+        metadata["format"], thresh_img.copy(), ansROI.copy())
+
     if all_alternatives is None:
         return False
 
     answers = check_answers(
-        all_alternatives, qrcode_data["n_alternatives"], thresh_img.copy())
+        all_alternatives, metadata["n_alternatives"], thresh_img.copy())
 
-    write_to_file(qrcode_data["school"], qrcode_data["test"],
-                  qrcode_data["student"], answers, outfile)
+    write_to_file(student_id, answers, outfile)
+    print("Done!")
     return True
 
 

@@ -36,6 +36,14 @@ def img_show(img, window_name, width=None, height=None):
     cv2.waitKey(0)
 
 
+def img_print(img, text, pos=None, col=(0, 255, 0), thickness=2):
+    if pos is None:
+        sz = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.65, thickness)
+        pos = (5, int(sz[1]) + 10)
+    cv2.putText(img, text, (pos[0], pos[1]),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, col, thickness)
+
+
 def auto_canny(image, sigma=0.33):
     """A wrapper of the cv2.Canny function which tries to automatically
     calculate the minimun and maximun thresholds based on the median
