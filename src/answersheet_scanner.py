@@ -7,10 +7,10 @@ import argparse
 from math import floor
 from imutils import contours
 import imutils
-from imutils.perspective import four_point_transform, order_points
+from imutils.perspective import four_point_transform
 import cv2
 import cv2_utils
-import zbar
+# import zbar
 import csv
 import os
 from glob import glob
