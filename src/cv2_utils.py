@@ -170,3 +170,21 @@ def contour_center(c):
     cY = int(M["m01"] / M["m00"])
 
     return (cX, cY)
+
+
+def boundingRect_contour(c=None, br=None):
+    if c is not None:
+        (x, y, w, h) = cv2.boundingRect(c)
+    elif br is not None:
+        (x, y, w, h) = br
+    else:
+        return None
+
+    brc = np.array([
+        [x, y],
+        [x, y + h],
+        [x + w, y + h],
+        [x + w, y]
+    ]).reshape(4, 1, 2)
+
+    return brc

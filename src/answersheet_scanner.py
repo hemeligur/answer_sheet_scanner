@@ -4,7 +4,6 @@
 # import the necessary packages
 import numpy as np
 import argparse
-from math import floor
 from imutils import contours
 import imutils
 from imutils.perspective import four_point_transform
@@ -320,7 +319,7 @@ def read_student_id(thresh, markers, m_transform, img=None):
 
     img2 = imgRoi.copy()
     cv2.drawContours(img2, cnts, -1, (0, 0, 255), 3)
-    cv2_utils.img_show(img2, "Digits Contours")
+    # cv2_utils.img_show(img2, "Digits Contours")
 
     digitCnts = []
     widths = []
@@ -347,10 +346,10 @@ def read_student_id(thresh, markers, m_transform, img=None):
     normalized_widths = [i for i in widths if i >= mean_width]
     digit_width = int(np.ceil(np.mean(normalized_widths)))
 
-    print("widths:", widths)
-    print("heights:", heights)
-    print("normalized_widths:", normalized_widths)
-    print("digit_width:", digit_width)
+    # print("widths:", widths)
+    # print("heights:", heights)
+    # print("normalized_widths:", normalized_widths)
+    # print("digit_width:", digit_width)
 
     # sort the contours from left-to-right, then initialize the
     # actual digits themselves
@@ -368,7 +367,7 @@ def read_student_id(thresh, markers, m_transform, img=None):
         # extract the digit ROI
         (x, y, w, h) = cv2.boundingRect(c)
 
-        print("Bellow average?", w < mean_width)
+        # print("Bellow average?", w < mean_width)
         if w < mean_width:
             # Fix the width of the contour to account for the digit one
             diff_w = digit_width - w
@@ -394,8 +393,8 @@ def read_student_id(thresh, markers, m_transform, img=None):
             ((0, h - dH), (w, h))   # bottom
         ]
         on = [0] * len(segments)
-        img4 = imgRoi.copy()
-        cv2.rectangle(img4, (x, y), (x + w, y + h), (0, 255, 0), 1)
+        # img4 = imgRoi.copy()
+        # cv2.rectangle(img4, (x, y), (x + w, y + h), (0, 255, 0), 1)
         # loop over the segments
         for (i, ((xA, yA), (xB, yB))) in enumerate(segments):
             # extract the segment ROI, count the total number of
@@ -404,16 +403,15 @@ def read_student_id(thresh, markers, m_transform, img=None):
             segROI = roi[yA:yB, xA:xB]
             total = cv2.countNonZero(segROI)
             area = (xB - xA) * (yB - yA)
-            cv2.rectangle(img4, (xA + x, yA + y),
-                          (xB + x, yB + y), (255, 0, 0), 1)
-            cv2_utils.img_show(img4, "Digits Analisys")
+            # cv2.rectangle(img4, (xA + x, yA + y),
+            #               (xB + x, yB + y), (255, 0, 0), 1)
+            # cv2_utils.img_show(img4, "Digits Analisys")
 
             # if the total number of non-zero pixels is greater than
             # 70% of the area, mark the segment as "on"
             if total / float(area) > 0.7:
                 on[i] = 1
 
-        print(on)
         # lookup the digit and draw it on the image
         try:
             digit = DIGITS_LOOKUP[tuple(on)]
@@ -426,7 +424,7 @@ def read_student_id(thresh, markers, m_transform, img=None):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
 
     # display the digits
-    print(digits)
+    # print(digits)
     cv2_utils.img_show(imgRoi, "Output")
 
     student_id = 0
@@ -477,28 +475,30 @@ def define_each_alts_region(alts_regions, n_alternativas, total_alt_width):
     return all_alternatives
 
 
-def define_alternatives_region(questionMarks, n_alternativas, img=None):
+def define_alternatives_region(questionMarks, marker_height,
+                               n_alternativas, img=None):
     ''' Calculates the alternative's regions based on
     offset and width constants. '''
 
-    # The distance in pixels from the rightmost side of the
-    # question marker to the start/leftmost side of the alternative's region
-    # The offset can be calculated using the gimp project of the answer-card
+    # As measured in Gimp:
+    #   marker height = 43px
+    #   offset = 63px = ceil(marker_height * 1.46)
+    #   alt width = 62px = ceil(marker_height * 1.44)
+
+    # The offset is the distance in pixels from the rightmost side of the
+    # question marker to the start/leftmost side of the alternative's region.
+    # It can be calculated using the gimp project of the answer-card
     # and using the ruler tool to measure the distance and add 9.
-    offset = 75  # Exactly 3x the marker's width
+    offset = int(np.ceil(marker_height * 1.46))
     # The width of one alternative's region
     # Same as the offset but with a plus 1.
-    alt_width = 63  # Almost 3x the marker's width
+    alt_width = int(np.ceil(marker_height * 1.44))
 
     alts_region = []
-
-    marker_width = [questionMarks[i][-1][0][0] - questionMarks[i][0][0][0]
-                    for i in range(len(questionMarks))]
-    marker_width = np.mean(marker_width)
     for c in questionMarks:
         alts = []
         for i in range(len(c)):
-            alt = floor(i / 2) * n_alternativas
+            alt = int(np.floor(i / 2)) * n_alternativas
             alts.append(
                 [[c[i][0][0] + offset + (alt * alt_width),
                   c[i][0][1]]])
@@ -506,21 +506,15 @@ def define_alternatives_region(questionMarks, n_alternativas, img=None):
         alts = np.asarray(alts)
         alts_region.append(alts)
 
-    total_alt_width = (
-        alts_region[0][-1][0][0] -
-        alts_region[0][0][0][0] - marker_width
-    )
-
     for i, r in enumerate(alts_region):
-        cv2.drawContours(
-            img, [r], 0, (255, 0, 0), 5)
+        cv2.drawContours(img, [r], -1, (255, 0, 0), 5)
         c = cv2_utils.contour_center(r)
         cv2.putText(img, str(i), c, cv2.FONT_HERSHEY_SIMPLEX,
                     0.9, (0, 0, 255), 2)
     cv2_utils.img_show(img, "Alternatives regions", height=950)
 
     all_alternatives = define_each_alts_region(
-        alts_region, n_alternativas, total_alt_width)
+        alts_region, n_alternativas, alt_width * n_alternativas)
     return all_alternatives
 
 
@@ -528,10 +522,6 @@ def find_questions(n_alternativas, n_questoes, questions_format, thresh,
                    img=None):
     ''' Finds the questions using a serious of measures to
      ensure the identification of the question markers '''
-
-    thresh = imutils.resize(thresh, height=2480)
-    img = imutils.resize(img, height=2480)
-    cv2_utils.img_show(thresh, "thresh fix?", height=950)
 
     thresh_cnts = cv2.findContours(
         thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -542,10 +532,12 @@ def find_questions(n_alternativas, n_questoes, questions_format, thresh,
     cv2_utils.img_show(img1, "AnsROI Contours", height=800)
 
     questionMarks = []
-    rects = []
+    squares = []
+    pentagons = []
+    rects2 = []
+    questionMarks_heights = []
 
     img2 = img.copy()
-    img3 = img.copy()
     # Loop over the contours
     for c in thresh_cnts:
         # Compute the area of the contour to filter out very small noisy areas.
@@ -566,48 +558,65 @@ def find_questions(n_alternativas, n_questoes, questions_format, thresh,
         # print("Area:", area)
         if area > 10:
             # Looks for the question markers
-            if len(approx) == 4:
-                rects.append(approx)
-                # construct a mask that reveals only the current
-                # "mark" for the question
-                mask = np.zeros(thresh.shape, dtype="uint8")
-                cv2.drawContours(mask, [c], -1, 255, -1)
+            # accepts contours with 4 and 5 vertices
+            if abs(len(approx) - 4.5) <= 1:
+                if len(approx) == 4:
+                    squares.append(approx)
+                elif len(approx) == 5:
+                    pentagons.append(approx)
 
-                # apply the mask to the thresholded image, then
-                # count the number of non-zero pixels in the
-                # contour area to see if it has the mark pattern
-                mask_black = cv2.bitwise_and(thresh, thresh, mask=mask)
-                mask_white = cv2.bitwise_not(thresh, mask=mask)
-                total_black = cv2.countNonZero(mask_black)
-                total_white = cv2.countNonZero(mask_white)
+                br = cv2.boundingRect(c)
+                brc = cv2_utils.boundingRect_contour(br=br)
+                shape_diff = cv2.matchShapes(approx, brc, 1, 0)
+                print("shape_diff:", shape_diff)
+                if shape_diff < 0.21:
+                    rects2.append(brc)
 
-                print("black", total_black, "white", total_white)
-                ratio_black_area = total_black / area
-                ratio_white_area = total_white / area
-                ratio_white_black = total_white / total_black
-                print("black/area", abs(ratio_black_area - 0.8))
-                print("white/area", abs(ratio_white_area - 0.31))
-                print("white/black", abs(ratio_white_black - 0.4))
-                # print(area, total, area / total, ratio_area_half)
-                if (abs(ratio_black_area - 0.8) < 0.1 and
-                    abs(ratio_white_area - 0.31) < 0.1 and
-                        abs(ratio_white_black - 0.4) < 0.1):
-                    questionMarks.append(approx)
-                # cv2_utils.img_show(mask, "Mask markers", height=950)
+                    (x, y, w, h) = br
+                    questionMarks_heights.append(h)
+                    seg_div = 0.55
 
-                # for pt in approx:
-                #     cv2.circle(img2, tuple(pt[0]), 4, (0, 0, 255), 2)
-                # cv2_utils.img_show(img2, "Markers so far", height=950)
+                    upperMarkRoi = thresh[y:(y + int(h * seg_div)), x:x + w]
+                    lowerMarkRoi = thresh[(
+                        y + int(h * seg_div)):y + h, x:x + w]
+                    segment_area = w * (h * seg_div)
 
-            # print("Vertices:", len(approx))
-            # cv2.drawContours(img2, [approx], -1, (0, 255, 0), 2)
+                    upperNonZero = cv2.countNonZero(upperMarkRoi)
+                    lowerNonZero = cv2.countNonZero(lowerMarkRoi)
 
+                    pct_upperBlack = upperNonZero / segment_area
+                    pct_lowerBlack = lowerNonZero / segment_area
+                    print("pct_upperBlack:", pct_upperBlack)
+                    print("pct_lowerBlack:", pct_lowerBlack)
+                    passed = pct_upperBlack < 0.7 and pct_lowerBlack > 0.7
+                    print("Passed?", passed)
+                    cv2.rectangle(img2, (x, y), (x + w, y + int(h * seg_div)),
+                                  (0, 255 * passed, 255 * (not passed)), 2)
+                    cv2.rectangle(img2, (x, y + int(h * seg_div)),
+                                  (x + w, y + h),
+                                  (0, 255 * passed, 255 * (not passed)), 2)
+                    cv2_utils.img_show(img2, "marker segments", height=950)
+
+                    if pct_upperBlack < 0.7 and pct_lowerBlack > 0.7:
+                        questionMarks.append(brc)
+
+    img2 = img.copy()
     cv2.drawContours(img2, questionMarks, -1, (255, 0, 0), 2)
     cv2_utils.img_show(img2, "Question marks", height=950)
 
-    print(len(rects))
-    cv2.drawContours(img3, rects, -1, (0, 0, 255), 2)
-    cv2_utils.img_show(img3, "rects", height=950)
+    img3 = img.copy()
+    print(len(squares))
+    cv2.drawContours(img3, squares, -1, (0, 0, 255), 2)
+    cv2_utils.img_show(img3, "squares", height=950)
+    img3 = img.copy()
+    print(len(pentagons))
+    cv2.drawContours(img3, pentagons, -1, (255, 0, 255), 2)
+    cv2_utils.img_show(img3, "pentagons", height=950)
+
+    img3 = img.copy()
+    print(len(rects2))
+    cv2.drawContours(img3, rects2, -1, (0, 0, 255), 2)
+    cv2_utils.img_show(img3, "rects2", height=950)
 
     if len(questionMarks) != n_questoes and len(questionMarks) > 0:
         print("WARNING! Number of markers found is different from what is " +
@@ -620,7 +629,8 @@ def find_questions(n_alternativas, n_questoes, questions_format, thresh,
     questionMarks = sort_questionMarks(questionMarks, questions_format)
 
     all_alternatives = define_alternatives_region(
-        questionMarks, n_alternativas, img.copy())
+        questionMarks, np.mean(questionMarks_heights),
+        n_alternativas, img.copy())
 
     color = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
     color = (color * (len(all_alternatives) // len(color))) + \
@@ -638,7 +648,7 @@ def check_answers(all_alternatives, n_alternativas, thresh):
 
     answers = []
     for question in all_alternatives:
-        nonzero = 0
+        maxNonZero = 0
         ans = -1
         for i, alt in enumerate(question):
             # construct a mask that reveals only the current
@@ -652,9 +662,9 @@ def check_answers(all_alternatives, n_alternativas, thresh):
             mask = cv2.bitwise_and(thresh, thresh, mask=mask)
             total = cv2.countNonZero(mask)
 
-            if total > nonzero:
+            if total > maxNonZero:
                 ans = i
-                nonzero = total
+                maxNonZero = total
         answers.append(ans)
     return answers
 
@@ -696,6 +706,9 @@ def process_image(image_file, outfile):
     # Loads the image
     print("\n\nWill process:", image_file)
     image = load_image(image_file)
+    # print(image.shape)
+    # image = imutils.resize(image, height=1800)
+    # print(image.shape)
 
     # Filter the red color out
     image = cv2_utils.filter_red_out(image)
@@ -747,6 +760,10 @@ def process_image(image_file, outfile):
     # Reads the student id
     student_id = read_student_id(
         thresh_img, markers, m_transform, ansROI.copy())
+
+    # Resizes the cropped ROI
+    thresh_img = imutils.resize(thresh_img, height=1000)
+    ansROI = imutils.resize(ansROI, height=1000)
 
     all_alternatives = find_questions(
         metadata["n_alternatives"], metadata["n_questions"],
