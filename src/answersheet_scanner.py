@@ -3,6 +3,7 @@
 
 # import the necessary packages
 import numpy as np
+from math import pi as PI
 import argparse
 from imutils import contours
 import imutils
@@ -25,7 +26,9 @@ def abort(errorMsg="Error! Aborting."):
 def load_image(img):
     # Load the image
     image = cv2.imread(img)
-    cv2_utils.img_show(image, "Original", height=950)
+
+    if image is not None:
+        cv2_utils.img_show(image, "Original", height=950)
 
     return image
 
@@ -485,14 +488,14 @@ def define_alternatives_region(questionMarks, marker_height,
     #   offset = 63px = ceil(marker_height * 1.46)
     #   alt width = 62px = ceil(marker_height * 1.44)
 
+    # After being printed and scanned the values change to 1.85 and 1.35,
+    # respectively.
     # The offset is the distance in pixels from the rightmost side of the
     # question marker to the start/leftmost side of the alternative's region.
-    # It can be calculated using the gimp project of the answer-card
-    # and using the ruler tool to measure the distance and add 9.
-    offset = int(np.ceil(marker_height * 1.46))
+    offset = int(np.ceil(marker_height * 1.85))
     # The width of one alternative's region
     # Same as the offset but with a plus 1.
-    alt_width = int(np.ceil(marker_height * 1.44))
+    alt_width = int(np.ceil(marker_height * 1.35))
 
     alts_region = []
     for c in questionMarks:
@@ -534,7 +537,9 @@ def find_questions(n_alternativas, n_questoes, questions_format, thresh,
     questionMarks = []
     squares = []
     pentagons = []
-    rects2 = []
+    hexagons = []
+    shape_similar = []
+    smaller_area_min_circle = []
     questionMarks_heights = []
 
     img2 = img.copy()
@@ -558,65 +563,107 @@ def find_questions(n_alternativas, n_questoes, questions_format, thresh,
         # print("Area:", area)
         if area > 10:
             # Looks for the question markers
-            # accepts contours with 4 and 5 vertices
-            if abs(len(approx) - 4.5) <= 1:
+            # accepts contours with 4, 5 and 6 vertices
+            if abs(len(approx) - 5) <= 1:
                 if len(approx) == 4:
                     squares.append(approx)
                 elif len(approx) == 5:
                     pentagons.append(approx)
+                elif len(approx) == 6:
+                    hexagons.append(approx)
 
                 br = cv2.boundingRect(c)
                 brc = cv2_utils.boundingRect_contour(br=br)
                 shape_diff = cv2.matchShapes(approx, brc, 1, 0)
-                print("shape_diff:", shape_diff)
+                # print("shape_diff:", shape_diff)
                 if shape_diff < 0.21:
-                    rects2.append(brc)
+                    shape_similar.append(brc)
 
                     (x, y, w, h) = br
                     questionMarks_heights.append(h)
-                    seg_div = 0.55
+                    circle_center, min_radius = cv2.minEnclosingCircle(approx)
+                    min_circle_area = PI * (min_radius ** 2)
+                    br_area = w * h
 
-                    upperMarkRoi = thresh[y:(y + int(h * seg_div)), x:x + w]
-                    lowerMarkRoi = thresh[(
-                        y + int(h * seg_div)):y + h, x:x + w]
-                    segment_area = w * (h * seg_div)
+                    if min_circle_area > br_area:
+                        smaller_area_min_circle.append(brc)
+                        seg_div = 0.55
+                        upper_offset_y = int(h / 5.5)
+                        upper_offset_x = int(w / 5)
 
-                    upperNonZero = cv2.countNonZero(upperMarkRoi)
-                    lowerNonZero = cv2.countNonZero(lowerMarkRoi)
+                        upper_start_y = y + upper_offset_y
+                        upper_end_y = (y + int(h * seg_div))
+                        upper_start_x = x + upper_offset_x
+                        upper_end_x = x + w - upper_offset_x
 
-                    pct_upperBlack = upperNonZero / segment_area
-                    pct_lowerBlack = lowerNonZero / segment_area
-                    print("pct_upperBlack:", pct_upperBlack)
-                    print("pct_lowerBlack:", pct_lowerBlack)
-                    passed = pct_upperBlack < 0.7 and pct_lowerBlack > 0.7
-                    print("Passed?", passed)
-                    cv2.rectangle(img2, (x, y), (x + w, y + int(h * seg_div)),
-                                  (0, 255 * passed, 255 * (not passed)), 2)
-                    cv2.rectangle(img2, (x, y + int(h * seg_div)),
-                                  (x + w, y + h),
-                                  (0, 255 * passed, 255 * (not passed)), 2)
-                    cv2_utils.img_show(img2, "marker segments", height=950)
+                        lower_start_y = (y + int(h * seg_div))
+                        lower_end_y = y + h
+                        lower_start_x = x
+                        lower_end_x = x + w
 
-                    if pct_upperBlack < 0.7 and pct_lowerBlack > 0.7:
-                        questionMarks.append(brc)
+                        upperMarkRoi = thresh[
+                            upper_start_y:upper_end_y,
+                            upper_start_x:upper_end_x
+                        ]
+                        lowerMarkRoi = thresh[
+                            lower_start_y:lower_end_y,
+                            lower_start_x:lower_end_x
+                        ]
+                        segment_area = w * (h * seg_div)
+
+                        upperNonZero = cv2.countNonZero(upperMarkRoi)
+                        lowerNonZero = cv2.countNonZero(lowerMarkRoi)
+
+                        pct_upperBlack = upperNonZero / segment_area
+                        pct_lowerBlack = lowerNonZero / segment_area
+
+                        lower_threshold = 0.7
+                        upper_threshold = 0.3
+
+                        # print("pct_upperBlack:", pct_upperBlack)
+                        # print("pct_lowerBlack:", pct_lowerBlack)
+                        passed = (pct_upperBlack < upper_threshold and
+                                  pct_lowerBlack > lower_threshold)
+                        # print("Passed?", passed)
+
+                        cv2.rectangle(img2, (upper_start_x, upper_start_y),
+                                      (upper_end_x, upper_end_y),
+                                      (0, 255 * passed, 255 * (not passed)), 1)
+                        cv2.rectangle(img2, (lower_start_x, lower_start_y),
+                                      (lower_end_x, lower_end_y),
+                                      (0, 255 * passed, 255 * (not passed)), 2)
+                        cv2_utils.img_show(img2, "marker segments", height=950)
+
+                        if (pct_upperBlack < upper_threshold and
+                                pct_lowerBlack > lower_threshold):
+                            questionMarks.append(brc)
 
     img2 = img.copy()
     cv2.drawContours(img2, questionMarks, -1, (255, 0, 0), 2)
     cv2_utils.img_show(img2, "Question marks", height=950)
 
     img3 = img.copy()
-    print(len(squares))
+    # print(len(squares))
     cv2.drawContours(img3, squares, -1, (0, 0, 255), 2)
     cv2_utils.img_show(img3, "squares", height=950)
     img3 = img.copy()
-    print(len(pentagons))
+    # print(len(pentagons))
     cv2.drawContours(img3, pentagons, -1, (255, 0, 255), 2)
     cv2_utils.img_show(img3, "pentagons", height=950)
+    img3 = img.copy()
+    # print(len(hexagons))
+    cv2.drawContours(img3, hexagons, -1, (255, 0, 255), 2)
+    cv2_utils.img_show(img3, "hexagons", height=950)
 
     img3 = img.copy()
-    print(len(rects2))
-    cv2.drawContours(img3, rects2, -1, (0, 0, 255), 2)
-    cv2_utils.img_show(img3, "rects2", height=950)
+    # print(len(shape_similar))
+    cv2.drawContours(img3, shape_similar, -1, (0, 0, 255), 2)
+    cv2_utils.img_show(img3, "shape_similar", height=950)
+
+    img3 = img.copy()
+    # print(len(smaller_area_min_circle))
+    cv2.drawContours(img3, smaller_area_min_circle, -1, (0, 0, 255), 2)
+    cv2_utils.img_show(img3, "smaller_area_min_circle", height=950)
 
     if len(questionMarks) != n_questoes and len(questionMarks) > 0:
         print("WARNING! Number of markers found is different from what is " +
@@ -683,7 +730,7 @@ def write_to_file(student_id, answers, outfile):
 
         try:
             with open(outfile, 'a', newline='') as csvfile:
-                writer = csv.writer(csvfile, delimiter=',')
+                writer = csv.writer(csvfile, delimiter=';')
                 if writeHeader:
                     writer.writerow(header)
 
@@ -706,6 +753,9 @@ def process_image(image_file, outfile):
     # Loads the image
     print("\n\nWill process:", image_file)
     image = load_image(image_file)
+    if image is None:
+        print("Image '%s' couldn't be loaded." % image_file)
+        return False
     # print(image.shape)
     # image = imutils.resize(image, height=1800)
     # print(image.shape)
