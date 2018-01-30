@@ -763,6 +763,7 @@ def process_image(image_file, outfile):
     # Filter the red color out
     image = cv2_utils.filter_red_out(image)
     cv2_utils.img_show(image, "No red", height=950)
+    abort("Fim teste cor")
 
     gray, edged = preprocess(image)
 

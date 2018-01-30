@@ -125,39 +125,46 @@ def filter_red_out(image):
     This is simply a wrapper to the function cv2_utils.filter_color_out.
     The ranges used are r=(250, 255), g=(0, 230), b=(0, 230)
     @param image The image to be processed.'''
-    no_red = filter_color_out(
-        image, red=(240, 255), green=(0, 230), blue=(0, 230))
+    no_lightred = filter_color_out(
+        image, hue=(160, 180), sat=(100, 255), value=(100, 255))
+    no_darkred = filter_color_out(
+        image, hue=(0, 10), sat=(100, 255), value=(100, 255))
+    img_show(no_lightred, "no_lightred", height=950)
+    img_show(no_darkred, "no_darkred", height=950)
+    no_red = cv2.bitwise_or(no_lightred, no_darkred)
 
     return no_red
 
 
-def filter_color_out(image, red, green, blue):
+def filter_color_out(image, hue, sat, value):
     ''' Filter a color in the RGB range passed.
     @param image The image to be processed
     @param red A tuple with min and max value for the red band
     @param green A tuple with min and max value for the green band
     @param blue A tuple with min and max value for the blue band'''
 
-    # hue=(30, 255), saturation=(150, 255), value=(50, 180)
-    # hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
     #  H       S         V
     # Hue, Saturation, Value
     # Color, Strength, Light
-    lower_color = np.array([blue[0], green[0], red[0]])
-    upper_color = np.array([blue[1], green[1], red[1]])
+    lower_color = np.array([hue[0], sat[0], value[0]])
+    upper_color = np.array([hue[1], sat[1], value[1]])
 
-    mask = cv2.inRange(image, lower_color, upper_color)
+    mask = cv2.inRange(hsv, lower_color, upper_color)
     mask_not = cv2.bitwise_not(mask)
-    # img_show(mask, "Mask", height=950)
+    img_show(mask, "Mask", height=950)
 
-    background = np.full(image.shape, 255, dtype=np.uint8)
+    background = np.full(hsv.shape, 255, dtype=np.uint8)
+    img_show(background, "background", height=950)
 
-    img_not = cv2.bitwise_and(image, image, mask=mask_not)
+    img_not = cv2.bitwise_and(hsv, hsv, mask=mask_not)
+    img_show(img_not, "img_not", height=950)
     img_bk = cv2.bitwise_and(background, background, mask=mask)
-    # img_show(img_bk, "background", height=950)
+    img_show(img_bk, "masked background", height=950)
 
-    res = cv2.bitwise_or(img_not, img_bk)
+    res_hsv = cv2.bitwise_or(img_not, img_bk)
+    res = cv2.cvtColor(res_hsv, cv2.COLOR_HSV2BGR)
     return res
 
 
