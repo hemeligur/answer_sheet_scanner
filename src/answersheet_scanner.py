@@ -339,7 +339,9 @@ def read_student_id(thresh, markers, m_transform, img=None):
         # cv2_utils.img_print(img2, "w: %s h: %s" % (w, h))
         # cv2_utils.img_show(img2, "Digit")
         # if the contour is sufficiently large, it must be a digit
-        digitCnts.append(c)
+        if h > 35:
+            if (w > 25 and w < h) or (w > 5 and (w / h) - 0.2 < 0.1):
+                digitCnts.append(c)
 
     if len(digitCnts) == 0:
         print("No digits found!")
@@ -396,8 +398,6 @@ def read_student_id(thresh, markers, m_transform, img=None):
             ((0, h - dH), (w, h))   # bottom
         ]
         on = [0] * len(segments)
-        # img4 = imgRoi.copy()
-        # cv2.rectangle(img4, (x, y), (x + w, y + h), (0, 255, 0), 1)
         # loop over the segments
         for (i, ((xA, yA), (xB, yB))) in enumerate(segments):
             # extract the segment ROI, count the total number of
@@ -406,13 +406,19 @@ def read_student_id(thresh, markers, m_transform, img=None):
             segROI = roi[yA:yB, xA:xB]
             total = cv2.countNonZero(segROI)
             area = (xB - xA) * (yB - yA)
-            # cv2.rectangle(img4, (xA + x, yA + y),
-            #               (xB + x, yB + y), (255, 0, 0), 1)
-            # cv2_utils.img_show(img4, "Digits Analisys")
+
+            # Printing the segments
+            img4 = imgRoi.copy()
+            cv2.rectangle(img4, (x, y), (x + w, y + h), (0, 255, 0), 1)
+            cv2.rectangle(img4, (xA + x, yA + y),
+                          (xB + x, yB + y), (255, 0, 0), 1)
+            cv2_utils.img_print(img4, "Black Px: %.2f%%" %
+                                ((total / area) * 100), col=(0, 0, 0))
+            cv2_utils.img_show(img4, "Digits Analisys")
 
             # if the total number of non-zero pixels is greater than
             # 70% of the area, mark the segment as "on"
-            if total / float(area) > 0.7:
+            if total / area > 0.6:
                 on[i] = 1
 
         # lookup the digit and draw it on the image
@@ -521,8 +527,8 @@ def define_alternatives_region(questionMarks, marker_height,
     return all_alternatives
 
 
-def find_questions(n_alternativas, n_questoes, questions_format, thresh,
-                   img=None):
+def find_questions(
+        n_alternativas, n_questoes, questions_format, thresh, img=None):
     ''' Finds the questions using a serious of measures to
      ensure the identification of the question markers '''
 
@@ -576,7 +582,7 @@ def find_questions(n_alternativas, n_questoes, questions_format, thresh,
                 brc = cv2_utils.boundingRect_contour(br=br)
                 shape_diff = cv2.matchShapes(approx, brc, 1, 0)
                 # print("shape_diff:", shape_diff)
-                if shape_diff < 0.21:
+                if shape_diff < 0.3:
                     shape_similar.append(brc)
 
                     (x, y, w, h) = br
@@ -694,9 +700,10 @@ def check_answers(all_alternatives, n_alternativas, thresh):
     and assigns the one with the most as the marked one. '''
 
     answers = []
-    for question in all_alternatives:
+    for n, question in enumerate(all_alternatives):
         maxNonZero = 0
-        ans = -1
+        minNonZero = 100
+        ans = 0
         for i, alt in enumerate(question):
             # construct a mask that reveals only the current
             # region of the question
@@ -707,12 +714,15 @@ def check_answers(all_alternatives, n_alternativas, thresh):
             # count the number of non-zero pixels in the
             # alternative area
             mask = cv2.bitwise_and(thresh, thresh, mask=mask)
-            total = cv2.countNonZero(mask)
+            nonZero = cv2.countNonZero(mask)
+            # print("Q: %d; A: %d; Px: %d" % (n, i, nonZero))
 
-            if total > maxNonZero:
-                ans = i
-                maxNonZero = total
+            if nonZero > maxNonZero:
+                maxNonZero = nonZero
+                if nonZero > minNonZero:
+                    ans = i
         answers.append(ans)
+        # print("Questão %d: %f" % (n, maxNonZero))
     return answers
 
 
@@ -763,7 +773,6 @@ def process_image(image_file, outfile):
     # Filter the red color out
     image = cv2_utils.filter_red_out(image)
     cv2_utils.img_show(image, "No red", height=950)
-    abort("Fim teste cor")
 
     gray, edged = preprocess(image)
 

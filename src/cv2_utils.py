@@ -37,6 +37,15 @@ def img_show(img, window_name, width=None, height=None):
 
 
 def img_print(img, text, pos=None, col=(0, 255, 0), thickness=2):
+    ''' Prints the text in the given image.
+    If no position for the text is passed,
+    the text is printed in the upper left area of the image.
+    @param img The image in which to print.
+    @param text The string to print.
+    @param pos The position to print the text.
+    @param col The color to use (Default: green).
+    @param thickness The thickness of the text (Default: 2) '''
+
     if pos is None:
         sz = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.65, thickness)
         pos = (5, int(sz[1]) + 10)
@@ -121,17 +130,21 @@ def step_size(image):
 
 
 def filter_red_out(image):
-    ''' Filter the red color out using predefined RGB range values.
+    ''' Filter the red color out using predefined HSV range values.
     This is simply a wrapper to the function cv2_utils.filter_color_out.
-    The ranges used are r=(250, 255), g=(0, 230), b=(0, 230)
+    The ranges used are:
+        hue=(0, 60) and (130, 180),
+        sat=(30, 255),
+        value=(80, 255)
     @param image The image to be processed.'''
-    no_lightred = filter_color_out(
-        image, hue=(160, 180), sat=(100, 255), value=(100, 255))
-    no_darkred = filter_color_out(
-        image, hue=(0, 10), sat=(100, 255), value=(100, 255))
-    img_show(no_lightred, "no_lightred", height=950)
-    img_show(no_darkred, "no_darkred", height=950)
-    no_red = cv2.bitwise_or(no_lightred, no_darkred)
+
+    no_end_red = filter_color_out(
+        image, hue=(130, 180), sat=(30, 255), value=(80, 255))
+    no_start_red = filter_color_out(
+        image, hue=(0, 60), sat=(30, 255), value=(80, 255))
+    # img_show(no_end_red, "no_end_red", height=950)
+    # img_show(no_start_red, "no_start_red", height=950)
+    no_red = cv2.bitwise_or(no_end_red, no_start_red)
 
     return no_red
 
@@ -139,9 +152,12 @@ def filter_red_out(image):
 def filter_color_out(image, hue, sat, value):
     ''' Filter a color in the RGB range passed.
     @param image The image to be processed
-    @param red A tuple with min and max value for the red band
-    @param green A tuple with min and max value for the green band
-    @param blue A tuple with min and max value for the blue band'''
+    @param hue A tuple with min and max value for the hue
+    (Color := raindow spectrum)
+    @param sat A tuple with min and max value for the saturation
+    (Strength := white to color)
+    @param value A tuple with min and max value for the value
+    (Light := black to color)'''
 
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
@@ -153,15 +169,16 @@ def filter_color_out(image, hue, sat, value):
 
     mask = cv2.inRange(hsv, lower_color, upper_color)
     mask_not = cv2.bitwise_not(mask)
-    img_show(mask, "Mask", height=950)
+    # img_show(mask, "Mask", height=950)
 
-    background = np.full(hsv.shape, 255, dtype=np.uint8)
-    img_show(background, "background", height=950)
+    background = np.full(image.shape, 255, dtype=np.uint8)
+    background = cv2.cvtColor(background, cv2.COLOR_BGR2HSV)
+    # img_show(background, "background", height=950)
 
     img_not = cv2.bitwise_and(hsv, hsv, mask=mask_not)
-    img_show(img_not, "img_not", height=950)
+    # img_show(img_not, "img_not", height=950)
     img_bk = cv2.bitwise_and(background, background, mask=mask)
-    img_show(img_bk, "masked background", height=950)
+    # img_show(img_bk, "masked background", height=950)
 
     res_hsv = cv2.bitwise_or(img_not, img_bk)
     res = cv2.cvtColor(res_hsv, cv2.COLOR_HSV2BGR)
@@ -180,6 +197,8 @@ def contour_center(c):
 
 
 def boundingRect_contour(c=None, br=None):
+    ''' Returns the contour bounding rectangle in contour format.
+    Can also receive a bounding rectangle to convert to contour. '''
     if c is not None:
         (x, y, w, h) = cv2.boundingRect(c)
     elif br is not None:
