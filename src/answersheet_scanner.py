@@ -3,7 +3,7 @@
 
 # import the necessary packages
 import numpy as np
-from math import pi as PI
+from math import pi as PI, inf
 import argparse
 from imutils import contours
 import imutils
@@ -701,7 +701,7 @@ def check_answers(all_alternatives, n_alternativas, thresh):
 
     answers = []
     for n, question in enumerate(all_alternatives):
-        maxNonZero = 0
+        maxNonZero = 1
         minNonZero = 100
         ans = 0
         for i, alt in enumerate(question):
@@ -717,10 +717,14 @@ def check_answers(all_alternatives, n_alternativas, thresh):
             nonZero = cv2.countNonZero(mask)
             # print("Q: %d; A: %d; Px: %d" % (n, i, nonZero))
 
-            if nonZero > maxNonZero:
-                maxNonZero = nonZero
-                if nonZero > minNonZero:
-                    ans = i
+            if nonZero > minNonZero:
+                if nonZero >= maxNonZero:
+                    if abs(1 - (nonZero / maxNonZero)) < 0.5:
+                        ans = 9
+                        maxNonZero = inf
+                    else:
+                        ans = i
+                        maxNonZero = nonZero
         answers.append(ans)
         # print("Questão %d: %f" % (n, maxNonZero))
     return answers
