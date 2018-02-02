@@ -723,7 +723,7 @@ def check_answers(all_alternatives, n_alternativas, thresh):
                         ans = 9
                         maxNonZero = inf
                     else:
-                        ans = i
+                        ans = i + 1
                         maxNonZero = nonZero
         answers.append(ans)
         # print("Questão %d: %f" % (n, maxNonZero))
