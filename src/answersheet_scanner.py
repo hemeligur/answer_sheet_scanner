@@ -261,8 +261,8 @@ def warpcrop(image, gray, points):
 
 def read_student_id(thresh, markers, m_transform, img=None):
     # Offsets taken from the Gimp project
-    top_offset = 2.12
-    bottom_offset = 0.42
+    top_offset = 3.96
+    bottom_offset = 1.67
 
     # define the dictionary of digit segments so we can identify
     # each digit on the thermostat
@@ -333,14 +333,14 @@ def read_student_id(thresh, markers, m_transform, img=None):
         (x, y, w, h) = cv2.boundingRect(c)
         widths.append(w)
         heights.append(h)
-        # print("w:", w, "h:", h)
-        # img2 = imgRoi.copy()
-        # cv2.drawContours(img2, [c], -1, (0, 255, 0), 1)
-        # cv2_utils.img_print(img2, "w: %s h: %s" % (w, h))
-        # cv2_utils.img_show(img2, "Digit")
+        print("w:", w, "h:", h)
+        img2 = imgRoi.copy()
+        cv2.drawContours(img2, [c], -1, (0, 255, 0), 1)
+        cv2_utils.img_print(img2, "w: %s h: %s" % (w, h))
+        cv2_utils.img_show(img2, "Digit")
         # if the contour is sufficiently large, it must be a digit
         if h > 35:
-            if (w > 25 and w < h) or (w > 5 and (w / h) - 0.2 < 0.1):
+            if (w > 25 and w < h) or (w >= 5 and (w / h) - 0.2 < 0.1):
                 digitCnts.append(c)
 
     if len(digitCnts) == 0:
@@ -436,9 +436,13 @@ def read_student_id(thresh, markers, m_transform, img=None):
     # print(digits)
     cv2_utils.img_show(imgRoi, "Output")
 
-    student_id = 0
-    for i, v in enumerate(digits):
-        student_id = student_id + v * (10 ** (len(digits) - 1 - i))
+    if all([i >= 0 for i in digits]):
+        student_id = 0
+        student_id = sum([v * (10 ** (len(digits) - i - 1))
+                          for i, v in enumerate(digits)])
+    else:
+        student_id = ''.join(['?' if i < 0 else str(i) for i in digits])
+        print("Couldn't read all digits. Got '%s'" % student_id)
 
     return student_id
 
