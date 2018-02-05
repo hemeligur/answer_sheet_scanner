@@ -460,18 +460,17 @@ def sort_questionMarks(questionMarks, questions_format):
     return qm
 
 
-def define_each_alts_region(alts_regions, n_alternativas, total_alt_width):
+def define_each_alts_region(alts_regions, n_alternatives, alt_width):
     ''' Calculates the respective individual alternative's region.'''
     # print("define_each_alts_region")
     all_alternatives = []
-    alt_width = total_alt_width / n_alternativas
     for alts in alts_regions:
         startColumn = alts[0][0][0]
         rowUp = alts[0][0][1]
         rowDown = alts[1][0][1]
 
         alternatives = []
-        for i in range(n_alternativas):
+        for i in range(n_alternatives):
             leftColumn = startColumn + (i * alt_width)
             alt = [[[int(leftColumn), int(rowUp)]],
                    [[int(leftColumn), int(rowDown)]],
@@ -485,29 +484,23 @@ def define_each_alts_region(alts_regions, n_alternativas, total_alt_width):
 
 
 def define_alternatives_region(questionMarks, marker_height,
-                               n_alternativas, img=None):
+                               n_alternatives, img=None):
     ''' Calculates the alternative's regions based on
     offset and width constants. '''
 
-    # As measured in Gimp:
-    #   marker height = 43px
-    #   offset = 63px = ceil(marker_height * 1.46)
-    #   alt width = 62px = ceil(marker_height * 1.44)
-
-    # After being printed and scanned the values change to 1.85 and 1.35,
-    # respectively.
+    # After being printed and scanned the proportion values in regard to the
+    # marker's height are 1.85 and 1.35, respectively.
     # The offset is the distance in pixels from the rightmost side of the
     # question marker to the start/leftmost side of the alternative's region.
-    offset = int(np.ceil(marker_height * 1.85))
+    offset = int(np.ceil(marker_height * 2.7))
     # The width of one alternative's region
-    # Same as the offset but with a plus 1.
-    alt_width = int(np.ceil(marker_height * 1.35))
+    alt_width = int(np.ceil(marker_height * 1.4))
 
     alts_region = []
     for c in questionMarks:
         alts = []
         for i in range(len(c)):
-            alt = int(np.floor(i / 2)) * n_alternativas
+            alt = int(np.floor(i / 2)) * n_alternatives
             alts.append(
                 [[c[i][0][0] + offset + (alt * alt_width),
                   c[i][0][1]]])
@@ -523,7 +516,7 @@ def define_alternatives_region(questionMarks, marker_height,
     cv2_utils.img_show(img, "Alternatives regions", height=950)
 
     all_alternatives = define_each_alts_region(
-        alts_region, n_alternativas, alt_width * n_alternativas)
+        alts_region, n_alternatives, alt_width)
     return all_alternatives
 
 
@@ -695,7 +688,7 @@ def find_questions(
     return all_alternatives
 
 
-def check_answers(all_alternatives, n_alternativas, thresh):
+def check_answers(all_alternatives, thresh):
     ''' Counts the number of black pixels in each alternative area
     and assigns the one with the most as the marked one. '''
 
@@ -715,16 +708,16 @@ def check_answers(all_alternatives, n_alternativas, thresh):
             # alternative area
             mask = cv2.bitwise_and(thresh, thresh, mask=mask)
             nonZero = cv2.countNonZero(mask)
-            # print("Q: %d; A: %d; Px: %d" % (n, i, nonZero))
+            # print("Q: %d; A: %d; Px: %d" % (n + 1, i + 1, nonZero))
 
             if nonZero > minNonZero:
-                if nonZero >= maxNonZero:
-                    if abs(1 - (nonZero / maxNonZero)) < 0.5:
-                        ans = 9
-                        maxNonZero = inf
-                    else:
-                        ans = i + 1
-                        maxNonZero = nonZero
+                # print("Ratio alts:", abs(1 - (nonZero / maxNonZero)))
+                if abs(1 - (nonZero / maxNonZero)) < 0.5:
+                    ans = 9
+                    maxNonZero = inf
+                elif nonZero >= maxNonZero:
+                    ans = i + 1
+                    maxNonZero = nonZero
         answers.append(ans)
         # print("Questão %d: %f" % (n, maxNonZero))
     return answers
@@ -805,9 +798,9 @@ def process_image(image_file, outfile):
     #     # return False
 
     metadata = {
-        "n_questions": 81,
+        "n_questions": 50,
         "n_alternatives": 5,
-        "format": [27, 3]
+        "format": [25, 2]
     }
 
     markers = find_markers(edged, image)
@@ -837,7 +830,7 @@ def process_image(image_file, outfile):
         return False
 
     answers = check_answers(
-        all_alternatives, metadata["n_alternatives"], thresh_img.copy())
+        all_alternatives, thresh_img.copy())
 
     write_to_file(student_id, answers, outfile)
     print("Done!")
