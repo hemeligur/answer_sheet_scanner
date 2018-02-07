@@ -51,7 +51,7 @@ def read_args():
     gr.add_argument("-d", "--imgdir", help="Path to the directory with the images to be processed.\
                     Will process all images found in this directory based on \
                     file extension.The extensions lookep up for are: [.png; \
-                    .jpg; .jpeg; .gif; .bmp.].")
+                    .jpg; .jpeg; .gif; .bmp; .tif].")
     args = vars(ap.parse_args())
 
     cv2_utils.DEBUG = args["debug"]
@@ -70,7 +70,7 @@ def read_args():
 
 
 def list_images(path):
-    extensions = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp"]
+    extensions = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.tif"]
     files = []
     for ext in extensions:
         files.extend(glob(os.path.join(path, ext)))
@@ -185,7 +185,7 @@ def find_markers(edged, image=None):
     cnts = cnts[0] if imutils.is_cv2() else cnts[1]
 
     img = image.copy()
-    cv2.drawContours(img, cnts, -1, (0, 0, 255), 3)
+    cv2_utils.drawContours(img, cnts, (0, 0, 255), 3)
     cv2_utils.img_show(img, "Contours", height=950)
 
     markers = []
@@ -206,9 +206,9 @@ def find_markers(edged, image=None):
                 # If the approximated contour has three points,
                 # then it's assumed to have found a marker.
                 # convex = cv2.isContourConvex(c)
-                # print(len(approx), area, convex)
+                # print(len(approx), area)
                 # img2 = image.copy()
-                # cv2.drawContours(img2, [approx], -1, (0, 0, 255), 2)
+                # cv2_utils.drawContours(img2, [approx], (0, 0, 255), 2)
                 # cv2_utils.img_show(img2, "Contorno", height=950)
                 # img3 = image.copy()
                 # for pt in approx:
@@ -216,23 +216,28 @@ def find_markers(edged, image=None):
                 #     cv2_utils.img_show(img3, "contour points", height=950)
 
                 if len(approx) == 3:
-                    markers_area.append(cv2.contourArea(approx))
+                    markers_area.append(area)
                     markers.append(approx)
 
-                    # If for some reason it has found more than 4 triangles
-                    # We keep only the ones with the lower contour area std
-                    while len(markers) > 4:
-                        mean = np.mean(markers_area)
-                        diff_mean = sorted(
-                            [(abs(mean - v), i)
-                                for i, v in enumerate(markers_area)],
-                            reverse=True)
-                        del markers_area[diff_mean[0][1]]
-                        del markers[diff_mean[0][1]]
         if len(markers) < 4:
             print("Couldn't find all the four markers." +
                   " Cannot continue. Aborting!")
             return None
+
+        # If for some reason it has found more than 4 triangles
+        # We keep only the ones with the lower contour area std
+        # print(markers_area)
+        while len(markers) > 4:
+            mean = np.mean(markers_area)
+            # print(mean)
+            diff_mean = sorted(
+                [(abs(mean - v), i)
+                    for i, v in enumerate(markers_area)],
+                reverse=True)
+            # print(diff_mean, diff_mean[0][1])
+            del markers_area[diff_mean[0][1]]
+            del markers[diff_mean[0][1]]
+        # print(markers_area)
     else:
         print(
             "Error! No contour found! Impossible to continue. Aborting!")
@@ -240,7 +245,7 @@ def find_markers(edged, image=None):
 
     if len(markers) > 0:
         img = image.copy()
-        cv2.drawContours(img, markers, -1, (255, 0, 255), 2)
+        cv2_utils.drawContours(img, markers, (255, 0, 255), 2)
         cv2_utils.img_show(img, "Markers", height=950)
     else:
         print("Error! No marker found! Giving up.")
@@ -299,7 +304,7 @@ def read_student_id(thresh, markers, m_transform, img=None):
         id_region.reshape(1, 4, 2), m_transform)
     id_region_warped = id_region_warped.reshape(4, 2)
 
-    # cv2.drawContours(img, id_region.reshape(4, 1, 2), -1, (0, 0, 255), 3)
+    # cv2_utils.drawContours(img, id_region.reshape(4, 1, 2), (0, 0, 255), 3)
     # for pt in id_region_warped:
     #     cv2.circle(img, tuple(pt), 3, (0, 0, 255), 2)
     # cv2_utils.img_show(img, "Id Region", height=950)
@@ -321,7 +326,7 @@ def read_student_id(thresh, markers, m_transform, img=None):
     cnts = cnts[0] if imutils.is_cv2() else cnts[1]
 
     img2 = imgRoi.copy()
-    cv2.drawContours(img2, cnts, -1, (0, 0, 255), 3)
+    cv2_utils.drawContours(img2, cnts, (0, 0, 255), 3)
     # cv2_utils.img_show(img2, "Digits Contours")
 
     digitCnts = []
@@ -331,17 +336,17 @@ def read_student_id(thresh, markers, m_transform, img=None):
     for c in cnts:
         # compute the bounding box of the contour
         (x, y, w, h) = cv2.boundingRect(c)
-        widths.append(w)
-        heights.append(h)
-        print("w:", w, "h:", h)
-        img2 = imgRoi.copy()
-        cv2.drawContours(img2, [c], -1, (0, 255, 0), 1)
-        cv2_utils.img_print(img2, "w: %s h: %s" % (w, h))
-        cv2_utils.img_show(img2, "Digit")
+        # print("w:", w, "h:", h)
+        # img2 = imgRoi.copy()
+        # cv2_utils.drawContours(img2, [c], (0, 255, 0), 1)
+        # cv2_utils.img_print(img2, "w: %s h: %s" % (w, h))
+        # cv2_utils.img_show(img2, "Digit")
         # if the contour is sufficiently large, it must be a digit
         if h > 35:
             if (w > 25 and w < h) or (w >= 5 and (w / h) - 0.2 < 0.1):
                 digitCnts.append(c)
+                widths.append(w)
+                heights.append(h)
 
     if len(digitCnts) == 0:
         print("No digits found!")
@@ -362,7 +367,7 @@ def read_student_id(thresh, markers, m_transform, img=None):
                                        method="left-to-right")[0]
 
     img3 = imgRoi.copy()
-    cv2.drawContours(img3, digitCnts, -1, (0, 0, 255), 3)
+    cv2_utils.drawContours(img3, digitCnts, (0, 0, 255), 3)
     cv2_utils.img_show(img3, "Digits?")
 
     digits = []
@@ -417,15 +422,14 @@ def read_student_id(thresh, markers, m_transform, img=None):
             cv2_utils.img_show(img4, "Digits Analisys")
 
             # if the total number of non-zero pixels is greater than
-            # 70% of the area, mark the segment as "on"
-            if total / area > 0.6:
+            # 50% of the area, mark the segment as "on"
+            if total / area > 0.55:
                 on[i] = 1
 
         # lookup the digit and draw it on the image
         try:
             digit = DIGITS_LOOKUP[tuple(on)]
-        except KeyError as e:
-            print(e)
+        except KeyError:
             digit = -1
         digits.append(digit)
         cv2.rectangle(imgRoi, (x, y), (x + w, y + h), (0, 255, 0), 1)
@@ -513,7 +517,7 @@ def define_alternatives_region(questionMarks, marker_height,
         alts_region.append(alts)
 
     for i, r in enumerate(alts_region):
-        cv2.drawContours(img, [r], -1, (255, 0, 0), 5)
+        cv2_utils.drawContours(img, [r], (255, 0, 0), 5)
         c = cv2_utils.contour_center(r)
         cv2.putText(img, str(i), c, cv2.FONT_HERSHEY_SIMPLEX,
                     0.9, (0, 0, 255), 2)
@@ -533,14 +537,15 @@ def find_questions(
         thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     thresh_cnts = thresh_cnts[0] if imutils.is_cv2() else thresh_cnts[1]
 
-    img1 = img.copy()
-    cv2.drawContours(img1, thresh_cnts, -1, (0, 255, 255), 2)
-    cv2_utils.img_show(img1, "AnsROI Contours", height=800)
+    img2 = img.copy()
+    cv2_utils.drawContours(img2, thresh_cnts, (0, 255, 255), 2)
+    cv2_utils.img_show(img2, "AnsROI Contours", height=800)
 
     questionMarks = []
     squares = []
     pentagons = []
     hexagons = []
+    heptagons = []
     shape_similar = []
     smaller_area_min_circle = []
     questionMarks_heights = []
@@ -557,8 +562,9 @@ def find_questions(
         # to keep most of the original contour.
         approx = cv2.approxPolyDP(c, 0.03 * peri, True)
 
+        # print(len(approx))
         # img3 = img.copy()
-        # cv2.drawContours(img3, [approx], -1, (0, 0, 255), 3)
+        # cv2_utils.drawContours(img3, [approx], (0, 0, 255), 3)
         # cv2_utils.img_show(img3, "Question marks loop", height=950)
 
         # Checks the area of the contour for very small areas,
@@ -566,14 +572,16 @@ def find_questions(
         # print("Area:", area)
         if area > 10:
             # Looks for the question markers
-            # accepts contours with 4, 5 and 6 vertices
-            if abs(len(approx) - 5) <= 1:
+            # accepts contours with 4, 5, 6 and 7 vertices
+            if abs(len(approx) - 5.5) < 2:
                 if len(approx) == 4:
                     squares.append(approx)
                 elif len(approx) == 5:
                     pentagons.append(approx)
                 elif len(approx) == 6:
                     hexagons.append(approx)
+                elif len(approx) == 7:
+                    heptagons.append(approx)
 
                 br = cv2.boundingRect(c)
                 brc = cv2_utils.boundingRect_contour(br=br)
@@ -642,31 +650,38 @@ def find_questions(
                             questionMarks.append(brc)
 
     img2 = img.copy()
-    cv2.drawContours(img2, questionMarks, -1, (255, 0, 0), 2)
+    cv2_utils.drawContours(img2, questionMarks, (255, 0, 0), 2)
     cv2_utils.img_show(img2, "Question marks", height=950)
 
     img3 = img.copy()
     # print(len(squares))
-    cv2.drawContours(img3, squares, -1, (0, 0, 255), 2)
+    cv2_utils.drawContours(img3, squares, (0, 0, 255), 2)
     cv2_utils.img_show(img3, "squares", height=950)
     img3 = img.copy()
     # print(len(pentagons))
-    cv2.drawContours(img3, pentagons, -1, (255, 0, 255), 2)
+    cv2_utils.drawContours(img3, pentagons, (255, 0, 255), 2)
     cv2_utils.img_show(img3, "pentagons", height=950)
     img3 = img.copy()
     # print(len(hexagons))
-    cv2.drawContours(img3, hexagons, -1, (255, 0, 255), 2)
+    cv2_utils.drawContours(img3, hexagons, (255, 0, 255), 2)
     cv2_utils.img_show(img3, "hexagons", height=950)
+    # print(len(heptagons))
+    cv2_utils.drawContours(img3, heptagons, (255, 0, 255), 2)
+    cv2_utils.img_show(img3, "heptagons", height=950)
 
     img3 = img.copy()
     # print(len(shape_similar))
-    cv2.drawContours(img3, shape_similar, -1, (0, 0, 255), 2)
+    cv2_utils.drawContours(img3, shape_similar, (0, 0, 255), 2)
     cv2_utils.img_show(img3, "shape_similar", height=950)
 
     img3 = img.copy()
     # print(len(smaller_area_min_circle))
-    cv2.drawContours(img3, smaller_area_min_circle, -1, (0, 0, 255), 2)
+    cv2_utils.drawContours(img3, smaller_area_min_circle, (0, 0, 255), 2)
     cv2_utils.img_show(img3, "smaller_area_min_circle", height=950)
+
+    # Cleaning helper and debug variables to release memory
+    del (squares, pentagons, hexagons, heptagons,
+         shape_similar, smaller_area_min_circle, img3, img2)
 
     if len(questionMarks) != n_questoes and len(questionMarks) > 0:
         print("WARNING! Number of markers found is different from what is " +
@@ -686,7 +701,7 @@ def find_questions(
     color = (color * (len(all_alternatives) // len(color))) + \
         color[:len(all_alternatives) % len(color)]
     for question, c in zip(all_alternatives, color):
-        cv2.drawContours(img, question, -1, c, 3)
+        cv2_utils.drawContours(img, question, c, 3)
     cv2_utils.img_show(img, "Individual alternatives", height=950)
 
     return all_alternatives
@@ -744,7 +759,6 @@ def write_to_file(student_id, answers, outfile):
                 writer = csv.writer(csvfile, delimiter=';')
                 if writeHeader:
                     writer.writerow(header)
-
                 writer.writerow([student_id] + answers)
         except Exception as e:
             print("\nError wirting to file:", e)
@@ -816,7 +830,14 @@ def process_image(image_file, outfile):
     ansROI, warped, m_transform = warpcrop(image, gray, markers_center)
 
     thresh_val, thresh_img = cv2_utils.auto_thresh(warped)
-    cv2_utils.img_show(thresh_img, "auto thresh", height=800)
+    thresh_img_dilate = cv2.dilate(
+        thresh_img, np.ones((3, 3), np.uint8), iterations=3)
+    thresh_img_erode = cv2.erode(thresh_img_dilate, np.ones(
+        (3, 3), np.uint8), iterations=3)
+    cv2_utils.img_show(thresh_img, "auto thresh", height=950)
+    cv2_utils.img_show(thresh_img_dilate, "auto thresh dilate", height=950)
+    cv2_utils.img_show(thresh_img_erode, "auto thresh erode", height=950)
+    thresh_img = thresh_img_erode
 
     # Reads the student id
     student_id = read_student_id(
@@ -825,6 +846,8 @@ def process_image(image_file, outfile):
     # Resizes the cropped ROI
     thresh_img = imutils.resize(thresh_img, height=1000)
     ansROI = imutils.resize(ansROI, height=1000)
+    thresh_img = thresh_img[10:-10, 10:-10]
+    ansROI = ansROI[10:-10, 10:-10]
 
     all_alternatives = find_questions(
         metadata["n_alternatives"], metadata["n_questions"],

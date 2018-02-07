@@ -46,11 +46,23 @@ def img_print(img, text, pos=None, col=(0, 255, 0), thickness=2):
     @param col The color to use (Default: green).
     @param thickness The thickness of the text (Default: 2) '''
 
+    if not DEBUG:
+        return
+
     if pos is None:
         sz = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.65, thickness)
         pos = (5, int(sz[1]) + 10)
     cv2.putText(img, text, (pos[0], pos[1]),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, col, thickness)
+
+
+def drawContours(img, c, color, thickness, idx=-1):
+    ''' Simple wrapper for the cv2.drawContours '''
+
+    if not DEBUG:
+        return
+
+    cv2.drawContours(img, c, idx, color, thickness)
 
 
 def auto_canny(image, sigma=0.33):
@@ -139,9 +151,9 @@ def filter_red_out(image):
     @param image The image to be processed.'''
 
     no_end_red = filter_color_out(
-        image, hue=(130, 180), sat=(30, 255), value=(80, 255))
+        image, hue=(130, 180), sat=(30, 255), value=(100, 255))
     no_start_red = filter_color_out(
-        image, hue=(0, 60), sat=(30, 255), value=(80, 255))
+        image, hue=(0, 60), sat=(30, 255), value=(100, 255))
     # img_show(no_end_red, "no_end_red", height=950)
     # img_show(no_start_red, "no_start_red", height=950)
     no_red = cv2.bitwise_or(no_end_red, no_start_red)
