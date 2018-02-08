@@ -151,9 +151,9 @@ def filter_red_out(image):
     @param image The image to be processed.'''
 
     no_end_red = filter_color_out(
-        image, hue=(130, 180), sat=(30, 255), value=(100, 255))
+        image, hue=(130, 180), sat=(30, 255), value=(120, 255))
     no_start_red = filter_color_out(
-        image, hue=(0, 60), sat=(30, 255), value=(100, 255))
+        image, hue=(0, 60), sat=(30, 255), value=(120, 255))
     # img_show(no_end_red, "no_end_red", height=950)
     # img_show(no_start_red, "no_start_red", height=950)
     no_red = cv2.bitwise_or(no_end_red, no_start_red)

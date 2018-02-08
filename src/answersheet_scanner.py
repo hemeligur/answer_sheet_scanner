@@ -160,7 +160,7 @@ def preprocess(image):
      @param image: the image to be preprocessed
      @returns A tuple with the image converted to gray as the first element
      and the resulting image of edge detection '''
-    blurred = cv2.bilateralFilter(image, 5, 175, 175)
+    blurred = cv2.bilateralFilter(image, 5, 400, 400)
     gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
 
     edged = cv2_utils.auto_canny(gray)
@@ -201,7 +201,7 @@ def find_markers(edged, image=None):
             if area > 100:
                 # Approximate the contour to a simpler shape
                 peri = cv2.arcLength(c, True)
-                approx = cv2.approxPolyDP(c, 0.06 * peri, True)
+                approx = cv2.approxPolyDP(c, 0.05 * peri, True)
 
                 # If the approximated contour has three points,
                 # then it's assumed to have found a marker.
@@ -267,7 +267,7 @@ def warpcrop(image, gray, points):
 def read_student_id(thresh, markers, m_transform, img=None):
     # Offsets taken from the Gimp project
     top_offset = 3.96
-    bottom_offset = 1.67
+    bottom_offset = 1.5
 
     # define the dictionary of digit segments so we can identify
     # each digit on the thermostat
@@ -549,6 +549,8 @@ def find_questions(
     shape_similar = []
     smaller_area_min_circle = []
     questionMarks_heights = []
+    # pct_uBlack = []
+    # pct_lBlack = []
 
     img2 = img.copy()
     # Loop over the contours
@@ -586,8 +588,11 @@ def find_questions(
                 br = cv2.boundingRect(c)
                 brc = cv2_utils.boundingRect_contour(br=br)
                 shape_diff = cv2.matchShapes(approx, brc, 1, 0)
-                # print("shape_diff:", shape_diff)
-                if shape_diff < 0.3:
+                # print("shape_diff:", shape_diff, "len(approx):", len(approx))
+                # img3 = img.copy()
+                # cv2_utils.drawContours(img3, [approx], (0, 0, 255), 3)
+                # cv2_utils.img_show(img3, "Question marks loop", height=950)
+                if shape_diff < 0.4:
                     shape_similar.append(brc)
 
                     (x, y, w, h) = br
@@ -599,8 +604,9 @@ def find_questions(
                     if min_circle_area > br_area:
                         smaller_area_min_circle.append(brc)
                         seg_div = 0.55
-                        upper_offset_y = int(h / 5.5)
+                        upper_offset_y = int(h / 5)
                         upper_offset_x = int(w / 5)
+                        lower_offset_x = int(w / 10)
 
                         upper_start_y = y + upper_offset_y
                         upper_end_y = (y + int(h * seg_div))
@@ -609,8 +615,8 @@ def find_questions(
 
                         lower_start_y = (y + int(h * seg_div))
                         lower_end_y = y + h
-                        lower_start_x = x
-                        lower_end_x = x + w
+                        lower_start_x = x + lower_offset_x
+                        lower_end_x = x + w - lower_offset_x
 
                         upperMarkRoi = thresh[
                             upper_start_y:upper_end_y,
@@ -620,19 +626,26 @@ def find_questions(
                             lower_start_y:lower_end_y,
                             lower_start_x:lower_end_x
                         ]
-                        segment_area = w * (h * seg_div)
+                        upper_h = upper_end_y - upper_start_y
+                        upper_w = upper_end_x - upper_start_x
+                        lower_h = lower_end_y - lower_start_y
+                        lower_w = lower_end_x - lower_start_x
+                        upper_segment_area = upper_w * upper_h
+                        lower_segment_area = lower_w * lower_h
 
                         upperNonZero = cv2.countNonZero(upperMarkRoi)
                         lowerNonZero = cv2.countNonZero(lowerMarkRoi)
 
-                        pct_upperBlack = upperNonZero / segment_area
-                        pct_lowerBlack = lowerNonZero / segment_area
+                        pct_upperBlack = upperNonZero / upper_segment_area
+                        pct_lowerBlack = lowerNonZero / lower_segment_area
 
-                        lower_threshold = 0.7
-                        upper_threshold = 0.3
+                        upper_threshold = 0.45
+                        lower_threshold = 0.85
 
                         # print("pct_upperBlack:", pct_upperBlack)
                         # print("pct_lowerBlack:", pct_lowerBlack)
+                        # pct_uBlack.append(pct_upperBlack)
+                        # pct_lBlack.append(pct_lowerBlack)
                         passed = (pct_upperBlack < upper_threshold and
                                   pct_lowerBlack > lower_threshold)
                         # print("Passed?", passed)
@@ -642,12 +655,19 @@ def find_questions(
                                       (0, 255 * passed, 255 * (not passed)), 1)
                         cv2.rectangle(img2, (lower_start_x, lower_start_y),
                                       (lower_end_x, lower_end_y),
-                                      (0, 255 * passed, 255 * (not passed)), 2)
+                                      (0, 255 * passed, 255 * (not passed)), 1)
                         cv2_utils.img_show(img2, "marker segments", height=950)
 
                         if (pct_upperBlack < upper_threshold and
                                 pct_lowerBlack > lower_threshold):
                             questionMarks.append(brc)
+
+    # print("pct_upperBlack stats: mean:", np.mean(pct_uBlack),
+    #       "min:", np.min(pct_uBlack), "max:", np.max(pct_uBlack),
+    #       "std:", np.std(pct_uBlack))
+    # print("pct_lowerBlack stats: mean:", np.mean(pct_lBlack),
+    #       "min:", np.min(pct_lBlack), "max:", np.max(pct_lBlack),
+    #       "std:", np.std(pct_lBlack))
 
     img2 = img.copy()
     cv2_utils.drawContours(img2, questionMarks, (255, 0, 0), 2)
