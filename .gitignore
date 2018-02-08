@@ -1,2 +1,6 @@
 *.pyc
 ~*
+tests/scan_test*
+*.csv
+sucessos/
+falhas/
