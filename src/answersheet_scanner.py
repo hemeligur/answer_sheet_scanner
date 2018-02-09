@@ -2,6 +2,7 @@
 # python cartaoresposta-scanner.py --image img_1.png
 
 # import the necessary packages
+# import zbar
 import numpy as np
 from math import pi as PI, inf
 import argparse
@@ -10,12 +11,14 @@ import imutils
 from imutils.perspective import four_point_transform
 import cv2
 import cv2_utils
-# import zbar
 import csv
 import os
 from glob import glob
 from pathlib import Path
 import shutil
+from joblib import Parallel, delayed
+from multiprocessing import cpu_count
+import tempfile
 
 
 def abort(errorMsg="Error! Aborting."):
@@ -46,6 +49,8 @@ def read_args():
                      files processed with fail.")
     ap.add_argument("--debug", required=False, action='store_true',
                     help="Flag to enable the debug showing of the images")
+    ap.add_argument("-c", "--num_cores", required=False, default=1,
+                    help="Number of cores to be used for parallel processing.")
     gr = ap.add_mutually_exclusive_group(required=True)
     gr.add_argument("-i", "--image", help="Path to the input image")
     gr.add_argument("-d", "--imgdir", help="Path to the directory with the images to be processed.\
@@ -66,7 +71,7 @@ def read_args():
         print("Image: '%s'" % args["image"])
 
     return (args["image"], args["outfile"], args["imgdir"],
-            args["sucess_dir"], args["fail_dir"])
+            args["sucess_dir"], args["fail_dir"], args["num_cores"])
 
 
 def list_images(path):
@@ -792,7 +797,7 @@ def write_to_file(student_id, answers, outfile):
         print([student_id] + answers)
 
 
-def process_image(image_file, outfile):
+def process_image(image_file, answers, idx, metadata):
     ''' Process a image scanned of a answer sheet '''
 
     # Loads the image
@@ -835,12 +840,6 @@ def process_image(image_file, outfile):
     #     }
     #     # return False
 
-    metadata = {
-        "n_questions": 50,
-        "n_alternatives": 5,
-        "format": [25, 2]
-    }
-
     markers = find_markers(edged, image)
     if markers is None:
         return False
@@ -881,12 +880,19 @@ def process_image(image_file, outfile):
 
     write_to_file(student_id, answers, outfile)
     print("Done!")
+    cv2.destroyAllWindows()
     return True
 
 
 def main():
     # Reads the image passed through args
-    image, outfile, imgdir, sucess_dir, fail_dir = read_args()
+    image, outfile, imgdir, sucess_dir, fail_dir, num_cores = read_args()
+
+    metadata = {
+        "n_questions": 50,
+        "n_alternatives": 5,
+        "format": [25, 2]
+    }
 
     if image is not None:
         process_image(image, outfile)
@@ -902,18 +908,36 @@ def main():
                   % imgdir)
             return
 
-        for img in files:
-            sucess = process_image(img, outfile)
-            cv2.destroyAllWindows()
+        cpus = cpu_count()
+        if num_cores > cpus or (cpus + 1 + num_cores) > cpus:
+            print("WARNING: Number of cores specified is bigger than" +
+                  " the number of cores available. Will use %d, the " +
+                  "maximum available in the machine." % cpus)
+            num_cores = cpus
 
-            try:
-                if sucess is True:
-                    shutil.move(img, sucess_dir)
-                else:
-                    shutil.move(img, fail_dir)
-            except shutil.Error as e:
-                print("Error while moving the original image file:", e,
-                      "\nWill continue without moving.")
+        tmpfolder = tempfile.mkdtemp()
+        answers_file = os.path.join(tmpfolder, 'answers')
+
+        answers = np.memmap(
+            answers_file, dtype='U20, ' +
+            ('i4, ' * metadata["n_questions"])[:-2],
+            shape=(len(files), metadata["n_questions"] + 1), mode='w+')
+
+        if num_cores == 1:
+            for img in files:
+                sucess = process_image(img, outfile)
+
+                try:
+                    if sucess is True:
+                        shutil.move(img, sucess_dir)
+                    else:
+                        shutil.move(img, fail_dir)
+                except shutil.Error as e:
+                    print("Error while moving the original image file:", e,
+                          "\nWill continue without moving.")
+        else:
+            sucess = Parallel(n_jobs=num_cores)(delayed(process_image)(
+                files[i], answers, i, metadata) for i in range(len(files)))
 
 
 if __name__ == '__main__':
