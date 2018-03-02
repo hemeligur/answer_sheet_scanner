@@ -3,37 +3,26 @@
 
 # import the necessary packages
 # import zbar
-import numpy as np
-from math import pi as PI, inf
 import argparse
+import cv2_utils
+from math import pi as PI, inf
+import csv
+import os
+import numpy as np
 from imutils import contours
 import imutils
 from imutils.perspective import four_point_transform
 import cv2
-import cv2_utils
-import csv
-import os
 from glob import glob
 from pathlib import Path
-import shutil
+from shutil import move as sh_move, Error as sh_Error
 from joblib import Parallel, delayed
-from multiprocessing import cpu_count
-import tempfile
+from multiprocessing import cpu_count, Manager, Process
 
 
 def abort(errorMsg="Error! Aborting."):
     import sys
     sys.exit(errorMsg)
-
-
-def load_image(img):
-    # Load the image
-    image = cv2.imread(img)
-
-    if image is not None:
-        cv2_utils.img_show(image, "Original", height=950)
-
-    return image
 
 
 def read_args():
@@ -72,6 +61,16 @@ def read_args():
 
     return (args["image"], args["outfile"], args["imgdir"],
             args["sucess_dir"], args["fail_dir"], args["num_cores"])
+
+
+def load_image(img):
+    # Load the image
+    image = cv2.imread(img)
+
+    if image is not None:
+        cv2_utils.img_show(image, "Original", height=950)
+
+    return image
 
 
 def list_images(path):
@@ -767,12 +766,12 @@ def check_answers(all_alternatives, thresh):
     return answers
 
 
-def write_to_file(student_id, answers, outfile):
+def write_to_file(output_buffer, outfile, n_questions):
     ''' Saves the answers identified to the file.
     If no file has been passed then just prints to the console '''
 
     header = ["Aluno"]
-    header.extend(["Questao_" + str(i) for i in range(1, len(answers) + 1)])
+    header.extend(["Questao_" + str(i) for i in range(1, n_questions + 1)])
     print_flag = False
     if outfile is not None:
         writeHeader = False
@@ -784,24 +783,35 @@ def write_to_file(student_id, answers, outfile):
                 writer = csv.writer(csvfile, delimiter=';')
                 if writeHeader:
                     writer.writerow(header)
-                writer.writerow([student_id] + answers)
+                while True:
+                    card_answer = output_buffer.get()
+                    if card_answer is None:
+                        break
+
+                    writer.writerow(card_answer)
         except Exception as e:
-            print("\nError wirting to file:", e)
+            print("\nError writing to file:", e)
             print("Falling back to printing to console.\n")
             print_flag = True
     else:
+        print("Warning: No output file has been passed." +
+              "You should specify an output file.")
         print_flag = True
 
     if print_flag:
         print(header)
-        print([student_id] + answers)
+        while True:
+            answer = output_buffer.get()
+            if card_answer is None:
+                break
+            print(answer)
 
 
-def process_image(image_file, answers, idx, metadata):
+def process_image(image_file, output_buffer, metadata):
     ''' Process a image scanned of a answer sheet '''
 
     # Loads the image
-    print("\n\nWill process:", image_file)
+    print("Processing:", image_file)
     image = load_image(image_file)
     if image is None:
         print("Image '%s' couldn't be loaded." % image_file)
@@ -815,30 +825,6 @@ def process_image(image_file, answers, idx, metadata):
     cv2_utils.img_show(image, "No red", height=950)
 
     gray, edged = preprocess(image)
-
-    # results = decode_qrcode(gray)
-    # if results is None:
-    #     # return False
-    #     print("That's ok though")
-    #     qrcode_data = None
-    # else:
-    #     for result in results:
-    #         qrcode_data = parse_qrcode_data(result.data)
-
-    #         if qrcode_data is not None:
-    #             break
-
-    # if qrcode_data is None:
-    #     print("No valid QRcode found." +
-    #           " Will use the default values of 84 questions, each with 5" +
-    #           " alternatives, organized in 28 rows and 3 columns.")
-    #     qrcode_data = {
-    #         "student": 1,
-    #         "n_questions": 84,
-    #         "n_alternatives": 5,
-    #         "format": [28, 3]
-    #     }
-    #     # return False
 
     markers = find_markers(edged, image)
     if markers is None:
@@ -878,15 +864,13 @@ def process_image(image_file, answers, idx, metadata):
     answers = check_answers(
         all_alternatives, thresh_img.copy())
 
-    write_to_file(student_id, answers, outfile)
-    print("Done!")
+    output_buffer.put([student_id] + answers)
+    print("Done processing '%s'!" % image_file)
     cv2.destroyAllWindows()
     return True
 
 
 def main():
-    # Reads the image passed through args
-    image, outfile, imgdir, sucess_dir, fail_dir, num_cores = read_args()
 
     metadata = {
         "n_questions": 50,
@@ -894,8 +878,12 @@ def main():
         "format": [25, 2]
     }
 
+    # Reads the image passed through args
+    image, outfile, imgdir, sucess_dir, fail_dir, num_cores = read_args()
+
+    files = []
     if image is not None:
-        process_image(image, outfile)
+        files.append(image)
     else:
         Path(sucess_dir).mkdir(parents=True, exist_ok=True)
         Path(fail_dir).mkdir(parents=True, exist_ok=True)
@@ -908,36 +896,37 @@ def main():
                   % imgdir)
             return
 
-        cpus = cpu_count()
-        if num_cores > cpus or (cpus + 1 + num_cores) > cpus:
-            print("WARNING: Number of cores specified is bigger than" +
-                  " the number of cores available. Will use %d, the " +
-                  "maximum available in the machine." % cpus)
-            num_cores = cpus
+    num_cores = int(num_cores)
+    cpus = cpu_count()
+    if(num_cores > cpus or
+            (num_cores < 0 and (cpus + 1 + num_cores) > cpus)):
+        print("WARNING: Number of cores specified is bigger than" +
+              " the number of cores available. Will use %d, the " % cpus +
+              "maximum available in the machine.")
+        num_cores = cpus
 
-        tmpfolder = tempfile.mkdtemp()
-        answers_file = os.path.join(tmpfolder, 'answers')
+    print("Using %d processes." % num_cores)
 
-        answers = np.memmap(
-            answers_file, dtype='U20, ' +
-            ('i4, ' * metadata["n_questions"])[:-2],
-            shape=(len(files), metadata["n_questions"] + 1), mode='w+')
+    manager = Manager()
+    output_buffer = manager.Queue()
 
-        if num_cores == 1:
-            for img in files:
-                sucess = process_image(img, outfile)
+    writerToFile = Process(target=write_to_file, args=(
+        output_buffer, outfile, metadata["n_questions"]))
+    writerToFile.start()
 
-                try:
-                    if sucess is True:
-                        shutil.move(img, sucess_dir)
-                    else:
-                        shutil.move(img, fail_dir)
-                except shutil.Error as e:
-                    print("Error while moving the original image file:", e,
-                          "\nWill continue without moving.")
-        else:
-            sucess = Parallel(n_jobs=num_cores)(delayed(process_image)(
-                files[i], answers, i, metadata) for i in range(len(files)))
+    results = Parallel(n_jobs=num_cores)(delayed(process_image)(
+        files[i], output_buffer, metadata) for i in range(len(files)))
+
+    output_buffer.put(None)
+    for i, sucess in enumerate(results):
+        try:
+            if sucess is True:
+                sh_move(files[i], sucess_dir)
+            else:
+                sh_move(files[i], fail_dir)
+        except sh_Error as e:
+            print("Error while moving the original image file:", e,
+                  "\nWill continue without moving.")
 
 
 if __name__ == '__main__':
